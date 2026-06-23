@@ -39,6 +39,7 @@ struct RotationControlView: View {
 public struct SettingsWindowView: View {
     @ObservedObject private var manager = DisplayManager.shared
     @ObservedObject private var presetStore = DisplayPresetStore.shared
+    @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
     
     @State private var activeTab = "diagnostics"
     @State private var hasInitializedTab = false
@@ -421,6 +422,7 @@ public struct SettingsWindowView: View {
                 activeTab = "diagnostics"
             }
             loadAllOverridesStates()
+            launchAtLogin.refreshStatus()
         }
         .onChange(of: manager.displays) { _, _ in
             initializeActiveTabIfNeeded()
@@ -881,6 +883,31 @@ public struct SettingsWindowView: View {
     private func diagnosticsAndSystemTab() -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // General Settings
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("General Settings")
+                        .font(.headline)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Launch at Login", isOn: Binding(
+                            get: { launchAtLogin.isEnabled },
+                            set: { launchAtLogin.setEnabled($0) }
+                        ))
+                        .toggleStyle(.checkbox)
+                        
+                        Text("Automatically launch Mac Monitor when you log in to your Mac.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(Color.secondary.opacity(0.05))
+                .cornerRadius(8)
+                
+                Divider()
+                    .padding(.vertical, 8)
+                
                 // Display Recovery Settings
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Display Recovery Settings")
