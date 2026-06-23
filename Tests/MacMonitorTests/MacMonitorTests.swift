@@ -332,4 +332,82 @@ struct MacMonitorTests {
             service.clearDisabledForTesting(identifier)
         }
     }
+    
+    @Test("DisplayIdentifier custom Equatable and Hashable ignores transient displayID")
+    func testDisplayIdentifierCustomEquatableAndHashable() async throws {
+        let identifier1 = DisplayIdentifier(
+            displayID: 1,
+            uuid: "STABLE-UUID",
+            vendorID: 111,
+            productID: 222,
+            serialNumber: 333
+        )
+        let identifier2 = DisplayIdentifier(
+            displayID: 2, // different displayID!
+            uuid: "STABLE-UUID",
+            vendorID: 111,
+            productID: 222,
+            serialNumber: 333
+        )
+        
+        #expect(identifier1 == identifier2)
+        
+        var hasher1 = Hasher()
+        identifier1.hash(into: &hasher1)
+        let hash1 = hasher1.finalize()
+        
+        var hasher2 = Hasher()
+        identifier2.hash(into: &hasher2)
+        let hash2 = hasher2.finalize()
+        
+        #expect(hash1 == hash2)
+    }
+    
+    @Test("syncWithActiveDisplays prunes active displays from disabled list")
+    func testSyncWithActiveDisplaysPrunesActiveDisplays() async throws {
+        await MainActor.run {
+            let service = DisplayPowerService.shared
+            service.resetTrackedStateForTesting()
+            
+            let identifier = DisplayIdentifier(
+                uuid: "TEST-SYNC-UUID",
+                vendorID: 111,
+                productID: 222,
+                serialNumber: 333
+            )
+            
+            let displayInfo = DisplayInfo(
+                displayID: 1,
+                identifier: identifier,
+                name: "Test Sync Display",
+                isBuiltIn: false,
+                isActive: true,
+                isOnline: true,
+                isAsleep: false,
+                isMain: false,
+                isMirrored: false,
+                currentWidth: 1920,
+                currentHeight: 1080,
+                currentPixelWidth: 3840,
+                currentPixelHeight: 2160,
+                refreshRate: 60,
+                scaleFactor: 2,
+                isHiDPI: true,
+                rotation: 0,
+                modes: []
+            )
+            
+            // Mark as disabled initially
+            service.rememberDisplaySnapshot(displayInfo)
+            #expect(service.isDisplayDisabled(identifier) == true)
+            #expect(service.disabledDisplaySnapshots(excluding: []).count == 1)
+            
+            // Sync with active displays containing the display
+            service.syncWithActiveDisplays([displayInfo])
+            
+            // Verify it was pruned
+            #expect(service.isDisplayDisabled(identifier) == false)
+            #expect(service.disabledDisplaySnapshots(excluding: []).isEmpty)
+        }
+    }
 }

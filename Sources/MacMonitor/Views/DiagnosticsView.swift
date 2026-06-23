@@ -10,7 +10,7 @@ public struct DiagnosticsView: View {
     
     public var body: some View {
         VStack(spacing: 16) {
-            Text("ระบบวินิจฉัยและบันทึกเหตุการณ์ (Diagnostics & Logs)")
+            Text("Diagnostics & System Logs")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
@@ -18,12 +18,12 @@ public struct DiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // System Information
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("ข้อมูลระบบระบบปฏิบัติการ (OS Info)")
+                        Text("Operating System Information")
                             .font(.subheadline)
                             .fontWeight(.bold)
                         Text("macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)")
                             .font(.body)
-                        Text("เครื่อง Apple Silicon: \(isAppleSilicon() ? "ใช่ (Yes)" : "ไม่ใช่ (No)")")
+                        Text("Apple Silicon Machine: \(isAppleSilicon() ? "Yes" : "No")")
                             .font(.body)
                     }
                     .padding()
@@ -33,7 +33,7 @@ public struct DiagnosticsView: View {
                     
                     // Displays list details
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("สถานะหน้าจอเชื่อมต่อ (Connected Displays)")
+                        Text("Connected Displays Status")
                             .font(.subheadline)
                             .fontWeight(.bold)
                         
@@ -41,10 +41,10 @@ public struct DiagnosticsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("• \(display.name) (ID: \(display.displayID))")
                                     .fontWeight(.semibold)
-                                Text("  - UUID: \(display.identifier.uuid ?? "ไม่มี (None)")")
-                                Text("  - ขนาดภาพ (Logical): \(display.currentWidth)x\(display.currentHeight) | ขนาดพิกเซล: \(display.currentPixelWidth)x\(display.currentPixelHeight)")
-                                Text("  - เฟรมเรต: \(display.refreshRate) Hz | HiDPI: \(display.isHiDPI ? "ใช่ (Retina)" : "ไม่ใช่")")
-                                Text("  - การหมุนจอ: \(display.rotation) องศา | เชื่อมต่อผ่าน DDC/CI: \(DDCService.shared.supportsDDC(displayID: display.displayID) ? "รองรับ" : "ไม่รองรับ")")
+                                Text("  - UUID: \(display.identifier.uuid ?? "None")")
+                                Text("  - Logical Mode: \(display.currentWidth)x\(display.currentHeight) | Physical Resolution: \(display.currentPixelWidth)x\(display.currentPixelHeight)")
+                                Text("  - Refresh Rate: \(Int(display.refreshRate)) Hz | HiDPI: \(display.isHiDPI ? "Yes (Retina)" : "No")")
+                                Text("  - Rotation: \(display.rotation)° | DDC/CI Control: \(DDCService.shared.supportsDDC(displayID: display.displayID) ? "Supported" : "Not Supported")")
                             }
                             .font(.footnote)
                             .padding(.leading, 8)
@@ -54,11 +54,11 @@ public struct DiagnosticsView: View {
                     // Application Logs
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("บันทึกประวัติการทำงาน (Operation Logs)")
+                            Text("Application Operation Logs")
                                 .font(.subheadline)
                                 .fontWeight(.bold)
                             Spacer()
-                            Button("ล้างประวัติ (Clear Logs)") {
+                            Button("Clear Logs") {
                                 DiagnosticsService.shared.clearLogs()
                                 loadLogs()
                             }
@@ -68,7 +68,7 @@ public struct DiagnosticsView: View {
                         }
                         
                         if recentLogs.isEmpty {
-                            Text("ไม่มีการบันทึกประวัติเหตุการณ์ในขณะนี้")
+                            Text("No events recorded yet")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding()
@@ -77,7 +77,7 @@ public struct DiagnosticsView: View {
                                 ForEach(recentLogs.reversed()) { log in
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack {
-                                            Text(log.success ? "🟢 [สำเร็จ]" : "🔴 [ล้มเหลว]")
+                                            Text(log.success ? "🟢 [Success]" : "🔴 [Failure]")
                                                 .fontWeight(.bold)
                                             Text(log.operationType)
                                                 .fontWeight(.semibold)
@@ -87,7 +87,7 @@ public struct DiagnosticsView: View {
                                         }
                                         Text(log.details)
                                         if let err = log.errorDescription {
-                                            Text("ข้อผิดพลาด: \(err)")
+                                            Text("Error: \(err)")
                                                 .foregroundColor(.red)
                                         }
                                         Divider()
@@ -106,7 +106,7 @@ public struct DiagnosticsView: View {
             
             HStack {
                 Spacer()
-                Button("ส่งออกรายงานประวัติ (Export Diagnostics)") {
+                Button("Export Diagnostics Report") {
                     exportReport()
                 }
                 .buttonStyle(.borderedProminent)
@@ -119,9 +119,9 @@ public struct DiagnosticsView: View {
         }
         .alert(isPresented: $showingExportAlert) {
             Alert(
-                title: Text("ส่งออกรายงานสำเร็จ"),
-                message: Text("บันทึกไฟล์รายงานไว้ที่:\n\(exportedFilePath)"),
-                dismissButton: .default(Text("ตกลง"))
+                title: Text("Export Successful"),
+                message: Text("Diagnostics report saved to:\n\(exportedFilePath)"),
+                dismissButton: .default(Text("OK"))
             )
         }
     }

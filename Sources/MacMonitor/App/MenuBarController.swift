@@ -3,7 +3,7 @@ import SwiftUI
 import CoreGraphics
 
 @MainActor
-public final class MenuBarController: NSObject, NSMenuDelegate {
+public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     
@@ -24,14 +24,18 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         statusItem?.menu = menu
     }
     
-    // Dynamic menu population on menu open
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         
-        let displays = DisplayManager.shared.displays
+        var displays = DisplayManager.shared.displays
+        if displays.isEmpty {
+            // Force synchronous refresh if displays list is empty on menu open
+            DisplayManager.shared.refreshDisplays(forceSync: true)
+            displays = DisplayManager.shared.displays
+        }
         
         if displays.isEmpty {
-            menu.addItem(NSMenuItem(title: "ไม่พบหน้าจอเชื่อมต่อ", action: nil, keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "No connected displays found", action: nil, keyEquivalent: ""))
         } else {
             for display in displays {
                 let isDisabled = display.isAppDisconnected || DisplayPowerService.shared.isDisplayDisabled(display.displayID)
@@ -40,7 +44,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
                 let displayItem = NSMenuItem(title: displayTitle, action: nil, keyEquivalent: "")
                 if isDisabled {
                     displayItem.attributedTitle = NSAttributedString(
-                        string: "\(display.name) [ถูกปิดใช้งาน]",
+                        string: "\(display.name) [Disabled]",
                         attributes: [.foregroundColor: NSColor.disabledControlTextColor]
                     )
                 }
@@ -57,11 +61,11 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         
         // Presets submenu
-        let presetsItem = NSMenuItem(title: "ค่าที่ตั้งไว้ (Presets)", action: nil, keyEquivalent: "")
+        let presetsItem = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
         let presetsSubmenu = NSMenu()
         let presets = DisplayPresetStore.shared.presets
         if presets.isEmpty {
-            presetsSubmenu.addItem(NSMenuItem(title: "ไม่มี Preset ที่บันทึกไว้", action: nil, keyEquivalent: ""))
+            presetsSubmenu.addItem(NSMenuItem(title: "No saved presets", action: nil, keyEquivalent: ""))
         } else {
             for preset in presets {
                 let item = NSMenuItem(title: preset.name, action: #selector(applyPresetAction(_:)), keyEquivalent: "")
@@ -76,21 +80,21 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         
         // Menu utilities
-        let reconnectItem = NSMenuItem(title: "รีเซ็ตการเชื่อมต่อจอ (Reconnect Displays)", action: #selector(resetDisplayConnectionsAction), keyEquivalent: "")
+        let reconnectItem = NSMenuItem(title: "Reconnect Displays", action: #selector(resetDisplayConnectionsAction), keyEquivalent: "")
         reconnectItem.target = self
         menu.addItem(reconnectItem)
         
-        let settingsItem = NSMenuItem(title: "ตั้งค่าระบบ... (Open Settings...)", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
         
-        let diagnosticsItem = NSMenuItem(title: "ส่งออกรายงานประวัติ (Export Diagnostics)", action: #selector(exportDiagnosticsAction), keyEquivalent: "")
+        let diagnosticsItem = NSMenuItem(title: "Export Diagnostics...", action: #selector(exportDiagnosticsAction), keyEquivalent: "")
         diagnosticsItem.target = self
         menu.addItem(diagnosticsItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        let quitItem = NSMenuItem(title: "ออกจาก Mac Monitor (Quit)", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Mac Monitor", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
     }
@@ -100,7 +104,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         
         // 1. Power Toggle
         let powerItem = NSMenuItem(
-            title: isDisabled ? "เปิดใช้งานจอภาพ (Enable Display)" : "ปิดใช้งานจอภาพ (Disable Display)",
+            title: isDisabled ? "Enable Display" : "Disable Display",
             action: #selector(toggleDisplayPowerAction(_:)),
             keyEquivalent: ""
         )
@@ -116,7 +120,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         
         // 2. Quick Resolutions
-        let resItem = NSMenuItem(title: "ปรับความละเอียด (Resolutions)", action: nil, keyEquivalent: "")
+        let resItem = NSMenuItem(title: "Resolutions", action: nil, keyEquivalent: "")
         let resSubmenu = NSMenu()
         
         let grouped = RefreshRateService.shared.groupModesByResolution(
@@ -150,7 +154,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(resItem)
         
         // 3. Refresh Rate Selector
-        let refreshItem = NSMenuItem(title: "อัตราการรีเฟรช (Refresh Rates)", action: nil, keyEquivalent: "")
+        let refreshItem = NSMenuItem(title: "Refresh Rates", action: nil, keyEquivalent: "")
         let refreshSubmenu = NSMenu()
         
         // Get rates for current resolution
@@ -177,13 +181,13 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
                 refreshSubmenu.addItem(item)
             }
         } else {
-            refreshSubmenu.addItem(NSMenuItem(title: "ไม่สามารถปรับเปลี่ยนได้แยกกัน", action: nil, keyEquivalent: ""))
+            refreshSubmenu.addItem(NSMenuItem(title: "N/A (Not adjustable independently)", action: nil, keyEquivalent: ""))
         }
         refreshItem.submenu = refreshSubmenu
         menu.addItem(refreshItem)
         
         // 4. Rotation Selector
-        let rotationItem = NSMenuItem(title: "การหมุนหน้าจอ (Rotation)", action: nil, keyEquivalent: "")
+        let rotationItem = NSMenuItem(title: "Rotation", action: nil, keyEquivalent: "")
         let rotationSubmenu = NSMenu()
         for angle in [0, 90, 180, 270] {
             let item = NSMenuItem(title: "\(angle)°", action: #selector(changeRotationAction(_:)), keyEquivalent: "")
@@ -214,9 +218,12 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
             window.title = "Mac Monitor Settings"
             window.contentView = NSHostingView(rootView: contentView)
             window.isReleasedWhenClosed = false
+            window.delegate = self
             self.settingsWindow = window
         }
         
+        // Elevate activation policy so it supports Cmd+Tab and Dock
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
@@ -264,10 +271,10 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         } else {
             // Confirm before disabling external display
             let alert = NSAlert()
-            alert.messageText = "คำเตือนปิดหน้าจอแสดงผล"
-            alert.informativeText = "คุณแน่ใจหรือไม่ที่จะทำการปิดการใช้งานหน้าจอนี้?"
-            alert.addButton(withTitle: "ตกลง")
-            alert.addButton(withTitle: "ยกเลิก")
+            alert.messageText = "Disable Display Warning"
+            alert.informativeText = "Are you sure you want to disable this display? Your screen layout may flash and windows may rearrange."
+            alert.addButton(withTitle: "Disable")
+            alert.addButton(withTitle: "Cancel")
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
                 DisplayPowerService.shared.disableDisplay(displayID: displayID)
@@ -290,8 +297,8 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         do {
             try report.write(to: fileURL, atomically: true, encoding: .utf8)
             let alert = NSAlert()
-            alert.messageText = "ส่งออกรายงานประวัติสำเร็จ"
-            alert.informativeText = "บันทึกไฟล์รายงานไว้ที่:\n\(fileURL.path)"
+            alert.messageText = "Diagnostics Exported Successfully"
+            alert.informativeText = "Saved diagnostics report file at:\n\(fileURL.path)"
             alert.runModal()
         } catch {
             print("[MenuBarController] Failed to export report: \(error.localizedDescription)")
@@ -305,5 +312,12 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
     
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+    
+    // MARK: - NSWindowDelegate
+    
+    public func windowWillClose(_ notification: Notification) {
+        // Revert activation policy back to accessory when settings window is closed
+        NSApp.setActivationPolicy(.accessory)
     }
 }

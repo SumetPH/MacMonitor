@@ -52,11 +52,19 @@ public final class DisplayManager: ObservableObject {
     }
     
     public func refreshDisplays() {
+        refreshDisplays(forceSync: false)
+    }
+    
+    public func refreshDisplays(forceSync: Bool) {
         var onlineCount: UInt32 = 0
         var status = CGGetOnlineDisplayList(0, nil, &onlineCount)
         guard status == .success, onlineCount > 0 else {
-            DispatchQueue.main.async {
+            if forceSync {
                 self.displays = []
+            } else {
+                DispatchQueue.main.async {
+                    self.displays = []
+                }
             }
             return
         }
@@ -137,13 +145,23 @@ public final class DisplayManager: ObservableObject {
             tempDisplays.append(displayInfo)
         }
         
+        // Sync active displays to prune any stale disabled states/snapshots
+        DisplayPowerService.shared.syncWithActiveDisplays(tempDisplays)
+        
         tempDisplays.append(contentsOf: DisplayPowerService.shared.disabledDisplaySnapshots(excluding: tempDisplays))
         
-        DispatchQueue.main.async {
+        if forceSync {
             self.displays = tempDisplays
             // Preset Store auto-apply on connection
             DisplayPresetStore.shared.objectWillChange.send()
             DisplayPresetStore.shared.checkAndAutoApply(displays: tempDisplays)
+        } else {
+            DispatchQueue.main.async {
+                self.displays = tempDisplays
+                // Preset Store auto-apply on connection
+                DisplayPresetStore.shared.objectWillChange.send()
+                DisplayPresetStore.shared.checkAndAutoApply(displays: tempDisplays)
+            }
         }
     }
     

@@ -44,6 +44,27 @@ public final class DisplayPowerService {
         persistDisabledDisplaySnapshots()
     }
     
+    public func syncWithActiveDisplays(_ activeDisplays: [DisplayInfo]) {
+        let activeIDs = Set(activeDisplays.map(\.identifier.id))
+        var changed = false
+        
+        let initialCount = disabledDisplays.count
+        disabledDisplays = disabledDisplays.filter { !activeIDs.contains($0.id) }
+        if disabledDisplays.count != initialCount {
+            changed = true
+        }
+        
+        for activeID in activeIDs {
+            if disabledDisplaySnapshots.removeValue(forKey: activeID) != nil {
+                changed = true
+            }
+        }
+        
+        if changed {
+            persistDisabledDisplaySnapshots()
+        }
+    }
+    
     public func disabledDisplaySnapshots(excluding activeDisplays: [DisplayInfo]) -> [DisplayInfo] {
         let activeIDs = Set(activeDisplays.map(\.identifier.id))
         return disabledDisplaySnapshots.values
@@ -141,29 +162,47 @@ public final class DisplayPowerService {
         let softConnectSuccess = DisplayConnectionService.shared.setEnabled(displayID: displayID, enabled: true)
         let ddcPowerSuccess = softConnectSuccess ? false : DDCService.shared.setPower(displayID: displayID, on: true)
         
-        guard softConnectSuccess || ddcPowerSuccess else {
+        if softConnectSuccess || ddcPowerSuccess {
+            disabledDisplays.remove(displayIdentifier)
+            disabledDisplaySnapshots.removeValue(forKey: displayIdentifier.id)
+            persistDisabledDisplaySnapshots()
+            
+            let details = "Soft Connect: \(softConnectSuccess ? "Success" : "Failed"), DDC Power: \(ddcPowerSuccess ? "Success" : "Skipped/Failed"), Brightness: Skipped, Mirroring Removed: Skipped"
+            
             DiagnosticsService.shared.log(
                 displayID: displayID,
                 operation: "enableDisplay",
-                success: false,
-                details: "Failed to soft-connect display and DDC wake is unsupported."
+                success: true,
+                details: "Display enabled. Details: \(details)"
             )
-            return false
+            return true
         }
         
-        disabledDisplays.remove(displayIdentifier)
-        disabledDisplaySnapshots.removeValue(forKey: displayIdentifier.id)
-        persistDisabledDisplaySnapshots()
-        
-        let details = "Soft Connect: \(softConnectSuccess ? "Success" : "Failed"), DDC Power: \(ddcPowerSuccess ? "Success" : "Skipped/Failed"), Brightness: Skipped, Mirroring Removed: Skipped"
+        // Fallback: Sweep all possible display IDs to reconnect.
+        // This is necessary if the transient display ID has changed after a topology update or app restart.
+        print("[DisplayPowerService] Direct enable failed for DisplayID \(displayID). Attempting fallback sweep...")
+        let sweepSuccess = resetDisplayConnections()
+        if sweepSuccess {
+            disabledDisplays.remove(displayIdentifier)
+            disabledDisplaySnapshots.removeValue(forKey: displayIdentifier.id)
+            persistDisabledDisplaySnapshots()
+            
+            DiagnosticsService.shared.log(
+                displayID: displayID,
+                operation: "enableDisplay",
+                success: true,
+                details: "Display enabled via fallback sweep. Stored displayID was likely outdated."
+            )
+            return true
+        }
         
         DiagnosticsService.shared.log(
             displayID: displayID,
             operation: "enableDisplay",
-            success: true,
-            details: "Display enabled. Details: \(details)"
+            success: false,
+            details: "Failed to soft-connect display and DDC wake is unsupported (fallback sweep also failed)."
         )
-        return true
+        return false
     }
     
     private func loadDisabledDisplaySnapshots() {

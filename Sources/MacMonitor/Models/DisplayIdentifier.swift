@@ -18,6 +18,15 @@ public struct DisplayIdentifier: Codable, Hashable, Identifiable {
     public let productID: UInt32?
     public let serialNumber: UInt32?
     
+    // Custom Equatable and Hashable to ignore transient displayID
+    public static func == (lhs: DisplayIdentifier, rhs: DisplayIdentifier) -> Bool {
+        return lhs.id == rhs.id
+    }
+    
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
     public init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
         
@@ -33,8 +42,8 @@ public struct DisplayIdentifier: Codable, Hashable, Identifiable {
         self.serialNumber = CGDisplaySerialNumber(displayID)
     }
     
-    public init(uuid: String?, vendorID: UInt32?, productID: UInt32?, serialNumber: UInt32?) {
-        self.displayID = kCGNullDirectDisplay
+    public init(displayID: CGDirectDisplayID = kCGNullDirectDisplay, uuid: String?, vendorID: UInt32?, productID: UInt32?, serialNumber: UInt32?) {
+        self.displayID = displayID
         self.uuid = uuid
         self.vendorID = vendorID
         self.productID = productID
