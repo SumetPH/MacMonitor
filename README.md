@@ -1,173 +1,139 @@
 # Mac Monitor
 
-Mac Monitor is a lightweight, native macOS menu bar utility for advanced display management, custom HiDPI scaled resolutions, frame rate configuration, rotation control, presets, and DDC/CI monitor adjustments. Designed specifically for macOS 14+ and optimized for Apple Silicon Macs.
+Mac Monitor คือแอปเมนูบาร์สำหรับ macOS ที่ช่วยจัดการจอภาพแบบละเอียด เช่น ความละเอียดหน้าจอ, HiDPI scaled resolutions, refresh rate, rotation, preset, brightness/contrast ผ่าน DDC/CI และการสร้าง display override สำหรับจอที่ต้องการโหมด HiDPI เพิ่มเติม
 
-## Supported Features
-* **Display Discovery:** Detects display name, ID, UUID, vendor/product ID, serial number, active/online status, built-in vs external screen, scale factor, and rotation.
-* **Resolution & HiDPI Selection:** Lists normal modes and HiDPI modes separately. Allows switching modes with an automated 15-second rollback confirmation dialog to prevent lockouts.
-* **Refresh Rate Tuning:** Groups display modes by resolution and supports changing refresh rates (including high-refresh rates and ProMotion displays).
-* **Display Rotation:** Rotation control (0°, 90°, 180°, 270°) with support verification.
-* **Enable/Disable Screens:** Soft-disconnect external displays from the macOS display layout, with DDC/CI Standby as a fallback when supported.
-* **DDC/CI Control:** Hardware-level adjustment of external monitor brightness and contrast over I2C, plus native brightness controls for built-in and Apple-branded displays.
-* **Presets:** Save display configurations (resolution, scale, refresh rate, rotation, brightness) and auto-apply them when that specific monitor is reconnected.
-* **Clear Config & Uninstall:** Safe, manifest-tracked cleanup of all generated configurations, preferences, backups, and caches, restoring the system to its original state.
+โปรเจกต์นี้เป็น native Swift/SwiftUI app สำหรับ macOS 14+ และตั้งใจให้ใช้งานกับเครื่อง Mac จริง เพราะหลายฟีเจอร์ต้องคุยกับ CoreGraphics, IOKit, DisplayServices และไฟล์ override ของระบบ
 
----
+## ความสามารถหลัก
 
-## Technical Stack & API Reference
+- แสดงข้อมูลจอภาพที่ต่ออยู่: display ID, UUID, vendor/product ID, serial number, สถานะ active/online/asleep, built-in/external, scale factor, rotation และโหมดที่รองรับ
+- เปลี่ยน resolution และ HiDPI mode พร้อมหน้าต่างยืนยัน 15 วินาที ถ้าไม่ยืนยันจะ rollback กลับโหมดเดิม
+- เปลี่ยน refresh rate ตามโหมดที่ macOS รายงาน รวมถึงจอ high-refresh/ProMotion ที่รองรับ
+- หมุนจอ 0, 90, 180, 270 องศา เมื่อฮาร์ดแวร์และ macOS รองรับ
+- disable/enable จอภายนอกแบบ best effort ด้วยการจัดการ display layout และ DDC/CI standby fallback
+- ปรับ brightness/contrast ของจอภายนอกผ่าน DDC/CI และใช้ native brightness path สำหรับจอ built-in/Apple-branded เมื่อรองรับ
+- บันทึก preset ต่อจอ และ auto-apply เมื่อจอนั้นถูกต่อกลับมา
+- Clear Config และ Uninstall แบบอิง manifest เพื่อลบเฉพาะไฟล์ที่แอปสร้างหรือ restore backup ที่แอปเก็บไว้
+- Export diagnostics สำหรับดูสถานะจอ โหมดที่รองรับ และ operation log ล่าสุด
 
-Mac Monitor uses a hybrid API architecture to interact with macOS hardware and subsystems:
+## ข้อควรระวัง
 
-### 1. Stable Public APIs
-* **Display Queries:** `CGGetOnlineDisplayList`, `CGGetActiveDisplayList`, `CGDisplayCopyDisplayMode`, `CGDisplayCopyAllDisplayModes`, `CGDisplayIsBuiltin`, `CGDisplayIsActive`, `CGDisplayIsOnline`, `CGDisplayIsAsleep`, `CGDisplayIsInMirrorSet`.
-* **Configuration:** `CGBeginDisplayConfiguration`, `CGConfigureDisplayWithDisplayMode`, `CGConfigureDisplayMirrorOfDisplay`, `CGCompleteDisplayConfiguration`.
-* **Reconfiguration Observer:** `CGDisplayRegisterReconfigurationCallback` to monitor display connection status changes dynamically.
+Mac Monitor ใช้ทั้ง public API และ private/undocumented API ของ macOS เพื่อทำงานที่ Apple ไม่มี public API ให้ครบทุกกรณี ฟีเจอร์บางอย่างจึงอาจใช้ไม่ได้ใน macOS รุ่นใหม่ หรือใช้ไม่ได้กับจอ/adapter บางรุ่น
 
-### 2. Private, Undocumented, & Experimental APIs
-To provide advanced functionalities not covered by public APIs, Mac Monitor uses runtime dynamic loading (`dlopen`/`dlsym`) or compiler linking (`@_silgen_name`) for:
-* **Display Rotation:** `CGConfigureDisplayRotation` (private CoreGraphics symbol).
-* **Display UUID:** `CGDisplayCreateUUIDFromDisplayID` (dynamically linked).
-* **Native Apple/Built-in Brightness:** `DisplayServicesGetLinearBrightness` and `DisplayServicesSetLinearBrightness` from the private `/System/Library/PrivateFrameworks/DisplayServices.framework` (loaded dynamically at runtime to prevent compile-time linking errors).
-* **I2C Framebuffer Communication:** `IOFBGetI2CInterfaceCount`, `IOFBCopyI2CInterfaceForBus`, `IOI2CSendRequest` for sending DDC/CI commands to third-party external monitors.
-* **Custom HiDPI scaled resolutions:** Generated custom display override XML plist files under `/Library/Displays/Contents/Resources/Overrides/`.
+ฟีเจอร์ที่มีความเสี่ยงเป็นพิเศษ:
 
----
+- `CGConfigureDisplayRotation` สำหรับ rotation เป็น private CoreGraphics symbol
+- `DisplayServices.framework` สำหรับ brightness ของจอ Apple/built-in เป็น private framework
+- IOKit I2C สำหรับ DDC/CI ขึ้นกับจอ สาย และ hub/adapter
+- HiDPI override เขียนไฟล์ใต้ `/Library/Displays/Contents/Resources/Overrides/` และอาจต้องขอสิทธิ์ผู้ดูแลระบบ
+
+แอปพยายาม fail gracefully เมื่อฟีเจอร์ไม่รองรับ แต่ควรใช้งานบนเครื่องที่สามารถกู้คืนจอได้ง่าย เช่น ถอด/เสียบสายจอกลับ หรือเข้า Safe Mode ได้หากตั้งค่าผิดพลาด
+
+## Requirements
+
+- macOS 14.0 ขึ้นไป
+- Xcode หรือ Xcode Command Line Tools ที่รองรับ Swift 6
+- เครื่อง Mac จริงพร้อมจอที่ต้องการทดสอบ
+
+## การ Build และ Run
+
+Build executable:
+
+```bash
+swift build
+```
+
+Run จาก Swift Package:
+
+```bash
+swift run MacMonitor
+```
+
+Build เป็น `.app` bundle:
+
+```bash
+./Scripts/build-app.sh release
+```
+
+ผลลัพธ์จะอยู่ที่:
+
+```text
+dist/Mac Monitor.app
+```
+
+สำหรับ development แบบเร็ว:
+
+```bash
+./Scripts/dev-app.sh
+```
+
+เมื่อเปิดแอปแล้วจะไม่มี Dock icon ตามปกติ ให้มองหาไอคอนจอคู่บน macOS menu bar
+
+## การใช้งาน
+
+1. เปิดแอป แล้วคลิกไอคอน Mac Monitor บน menu bar
+2. เลือกจอที่ต้องการจัดการจากเมนู
+3. ใช้เมนูย่อยสำหรับ resolution, refresh rate, rotation หรือ enable/disable display
+4. เปิด `Settings...` เพื่อจัดการ preset, HiDPI override, brightness, diagnostics, clear config และ uninstall
+5. ถ้าเปลี่ยน resolution แล้วมีหน้าต่างยืนยัน ให้กดยืนยันภายใน 15 วินาทีเพื่อเก็บค่าใหม่
+
+## Recovery
+
+ถ้าตั้งค่าจอแล้วภาพหายหรือจอกลับมาไม่ถูกต้อง:
+
+1. ถอดสายจอภายนอกแล้วเสียบใหม่ เพื่อให้ macOS renegotiate display mode
+2. ถ้าเป็นจอหลัก ให้ boot เข้า Safe Mode
+3. ล้าง preferences:
+
+```bash
+defaults delete dev.sumetph.MacMonitor
+```
+
+4. ถ้าเคยเปิด HiDPI override ให้ใช้ Clear Config ในแอป หรือกู้คืนไฟล์ override จาก backup ที่ manifest เก็บไว้
 
 ## Project Structure
 
-```
+```text
 MacMonitor/
-├── Package.swift               # Swift Package configuration (macOS 14+, Swift 6)
-├── README.md                   # Documentation, API info, safety guide
-├── Sources/
-│   └── MacMonitor/
-│       ├── MacMonitor.swift  # SwiftUI App entry point and AppDelegate
-│       ├── Models/
-│       │   ├── DisplayIdentifier.swift
-│       │   ├── DisplayModeInfo.swift
-│       │   ├── DisplayInfo.swift
-│       │   ├── DisplayPreset.swift
-│       │   ├── DisplayConfigManifest.swift
-│       │   └── DisplayOperationResult.swift
-│       ├── Services/
-│       │   ├── DisplayManager.swift                # Main display coordinator
-│       │   ├── DisplayModeService.swift             # Mode switcher with 15s rollback
-│       │   ├── HiDPIService.swift                   # HiDPI detection and plists generator
-│       │   ├── RefreshRateService.swift             # Frame rate classifier & grouping
-│       │   ├── RotationService.swift                # Rotation manager (0-270 deg)
-│       │   ├── DisplayPowerService.swift             # Best-effort display connect/disconnect
-│       │   ├── DDCService.swift                     # I2C DDC/CI & DisplayServices manager
-│       │   ├── DisplayPresetStore.swift             # Preset storage and auto-apply
-│       │   ├── DisplayReconfigurationObserver.swift # Reconfig callback registration
-│       │   ├── ExperimentalDisplayService.swift     # Virtual displays wrapper
-│       │   ├── ConfigManifestStore.swift            # Tracks files generated by the app
-│       │   ├── ClearConfigService.swift             # Clean settings and restore backups
-│       │   ├── UninstallService.swift               # Full app remover and report writer
-│       │   └── DiagnosticsService.swift             # System diagnostic reports compiler
-│       └── Views/
-│           ├── SettingsWindowView.swift             # Tabbed settings control panel
-│           ├── DiagnosticsView.swift                # Logs and export panel
-│           └── Components/                          # Subcomponents
-└── Tests/
-    └── MacMonitorTests/
-        └── MacMonitorTests.swift                  # 6 Swift Testing test cases
+├── Assets/
+│   └── AppIcon.png
+├── Docs/
+│   └── init-prompt.md
+├── Scripts/
+│   ├── build-app.sh
+│   └── dev-app.sh
+├── Sources/MacMonitor/
+│   ├── App/
+│   │   └── MenuBarController.swift
+│   ├── Models/
+│   ├── Services/
+│   ├── Views/
+│   └── MacMonitor.swift
+├── Tests/
+├── Package.swift
+└── README.md
 ```
 
----
+## Security Notes ก่อนอัป GitHub
 
-## Build and Run Instructions
+เช็กแล้วใน repository ปัจจุบันไม่พบ secret pattern เช่น API key, token, private key หรือ password ที่ hard-code ไว้ใน source code แต่โปรเจกต์มีจุดที่ควรระวังเมื่อเผยแพร่:
 
-### Prerequisites
-* macOS 14.0 or newer
-* Xcode Command Line Tools or Xcode 15.0+ installed
-* Apple Silicon (M1/M2/M3/M4) or Intel processor (Apple Silicon recommended)
+- แอปมี privileged AppleScript flow สำหรับเขียน/ลบไฟล์ display override ใต้ `/Library/Displays/...`
+- diagnostics report อาจมีข้อมูล hardware identifier ของจอ เช่น UUID, vendor/product ID และ serial number
+- manifest ใน `~/Library/Application Support/MacMonitor/manifest.json` ใช้ติดตามไฟล์ที่แอปสร้างและ backup ที่แอปกู้คืน
+- `.vscode/launch.json` ยังเป็น untracked local file และไม่มี secret จากการตรวจรอบนี้
+- `dist/`, `.build/`, `.env*`, private keys, provisioning profiles และ signing artifacts ไม่ควรถูก commit
 
-### Build the App
-Open Terminal in the workspace root directory and compile the app using the Swift Compiler:
+ก่อน push ขึ้น GitHub แนะนำให้รัน:
+
 ```bash
-rtk swift build
+git status --short
+git diff --cached
+git log --all --oneline --decorate
 ```
 
-### Run the App
-Start the compiled app executable directly:
-```bash
-rtk swift run MacMonitor
-```
-This will launch Mac Monitor in the background. Look for the **dual-display icon** (`display.2` SF Symbol) in your macOS system Menu Bar!
+ถ้าพบว่าเคย commit secret ไปแล้ว ให้ rotate secret นั้นก่อน แล้วค่อยล้างประวัติ เพราะการลบไฟล์ออกจาก commit ล่าสุดอย่างเดียวไม่ทำให้ secret ปลอดภัย
 
-### Run Unit Tests
-To run the automated test suite verifying HiDPI detection, preset serialization, and config manifests:
-```bash
-rtk swift test
-```
+## License
 
----
-
-## Testing & Safety Verification Checklist
-
-### 1. Resolution Switching (Safety Rollback)
-* Open the **Mac Monitor Settings** (click the Menu Bar icon -> "ตั้งค่าระบบ... (Open Settings...)").
-* Select a resolution from the dropdown list.
-* The screen will flicker, and a **confirmation overlay** will appear counting down from 15 seconds.
-* **Test Case A (Success):** Click "Confirm" to keep the new resolution.
-* **Test Case B (Rollback):** Wait for 15 seconds without clicking. The display will automatically restore to its previous working resolution. This ensures you never get locked out of your display if a resolution is out-of-sync or unsupported.
-
-### 2. Display Rotation
-* In the Settings panel, choose an angle (90°, 180°, 270°).
-* Click the rotation button. The screen layout will rotate.
-* Built-in MacBook displays do not support hardware rotation; they will fail gracefully with an error in the logs. External monitors will rotate and reposition windows.
-* Changing back to 0° restores the landscape orientation.
-
-### 3. Display Disconnect (Disable Display)
-* Select an external monitor in Settings.
-* Toggle the "Disable Display" button.
-* Mac Monitor will:
-  1. Turn off monitor power using DDC/CI Standby.
-  2. Set brightness to 0.0.
-  3. Mirror the screen to the main display, collapsing its desktop layout.
-* Click "Enable Display" to restore power, restore brightness, and unmirror the screen.
-
-### 4. DDC/CI Hardware Brightness
-* Scroll to the Brightness slider in Settings for an external screen.
-* Drag the slider. The monitor's hardware backlight should adjust accordingly.
-* If your adapter, hub, or monitor does not support I2C IOKit communication, the slider will fall back to "Unsupported" status without crashing.
-
----
-
-## Recovery and Rollback Guide
-
-### How to recover from a black screen or bad display settings
-If a display setting causes a black screen and the app fails to auto-rollback:
-1. **Unplug and replug** the display cable. macOS will force the display driver to renegotiate a default safe mode.
-2. If the main display is black, boot macOS into **Safe Mode** (press and hold the Power button on Apple Silicon until "Loading startup options" appears, then hold Shift and click "Continue in Safe Mode").
-3. Launch Terminal and delete user preferences:
-   ```bash
-   defaults delete dev.sumetph.MacMonitor
-   ```
-4. Delete generated override files (see manifest details below).
-
-### How Clear Config Works
-Select **Clear Config** in Settings. This will:
-1. Revert any custom display override files.
-2. Restore original system configurations from backups.
-3. Reset saved presets and preferences.
-4. Clear the tracked manifest.
-
-### How Uninstall Works
-Select **Uninstall** in Settings. This will:
-1. Run the Clear Config process.
-2. Clean up all app folders, caches, and plist files:
-   - `~/Library/Application Support/MacMonitor`
-   - `~/Library/Preferences/dev.sumetph.MacMonitor.plist`
-   - `~/Library/Caches/dev.sumetph.MacMonitor`
-   - `~/Library/Logs/MacMonitor`
-3. Generate a comprehensive cleanup report at `~/Desktop/MacMonitor_Uninstall_Report.txt`.
-4. Quit the application.
-
----
-
-## Risks of Private APIs & Custom Overrides
-
-> [!CAUTION]
-> 1. **macOS System Updates:** Undocumented and private APIs (e.g. `DisplayServices` and `CGConfigureDisplayRotation`) can be modified, renamed, or restricted by Apple in future macOS versions. If an update breaks these features, Mac Monitor is engineered to fail gracefully by displaying "Unsupported" rather than crashing the system.
-> 2. **SIP (System Integrity Protection):** Modern macOS versions mount the system volume as read-only. DisplayPilot targets `/Library/Displays/Contents/Resources/Overrides` which lies in the user-writable library path. It does not require SIP to be disabled for standard operations, but some hardware combinations might restrict custom overrides unless root privileges are granted. Use caution when applying custom plists.
+ยังไม่ได้ระบุ license ใน repository นี้ หากต้องการให้ผู้อื่นใช้งานหรือ fork ได้อย่างชัดเจน ควรเพิ่มไฟล์ `LICENSE` ก่อนเผยแพร่แบบ public

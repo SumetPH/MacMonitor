@@ -5,6 +5,10 @@ public final class PrivilegedFileManager {
     public static let shared = PrivilegedFileManager()
     
     private init() {}
+
+    private func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
     
     /// รันคำสั่งเชลล์สคริปต์ด้วยสิทธิ์ผู้ดูแลระบบ (Administrator Privileges)
     /// - Parameter command: คำสั่งเชลล์ที่จะทำงาน
@@ -33,16 +37,16 @@ public final class PrivilegedFileManager {
     
     /// สร้างโฟลเดอร์ปลายทางด้วยสิทธิ์ผู้ดูแลระบบ
     public func createDirectory(atPath path: String) -> Bool {
-        return executePrivileged(command: "mkdir -p '\(path)'")
+        return executePrivileged(command: "mkdir -p \(shellQuoted(path))")
     }
     
     /// คัดลอกไฟล์จากต้นทางไปปลายทางด้วยสิทธิ์ผู้ดูแลระบบ
     public func copyItem(fromPath: String, toPath: String) -> Bool {
-        return executePrivileged(command: "cp -f '\(fromPath)' '\(toPath)'")
+        return executePrivileged(command: "cp -f \(shellQuoted(fromPath)) \(shellQuoted(toPath))")
     }
     
     /// ลบไฟล์ปลายทางด้วยสิทธิ์ผู้ดูแลระบบ
     public func removeItem(atPath path: String) -> Bool {
-        return executePrivileged(command: "rm -f '\(path)'")
+        return executePrivileged(command: "rm -f \(shellQuoted(path))")
     }
 }
