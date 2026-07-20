@@ -25,6 +25,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ConfigManifestStore.shared
         _ = DiagnosticsService.shared
         _ = DisplayManager.shared
+        _ = DisplayShortcutService.shared
         
         // Instantiate MenuBarController
         menuBarController = MenuBarController()

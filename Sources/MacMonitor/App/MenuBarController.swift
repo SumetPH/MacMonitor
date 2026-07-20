@@ -109,7 +109,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
             keyEquivalent: ""
         )
         powerItem.target = self
-        powerItem.representedObject = display.displayID
+        powerItem.representedObject = display
         powerItem.isEnabled = isDisabled || !display.isMain // Cannot disable the primary display
         menu.addItem(powerItem)
         
@@ -263,23 +263,9 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
     }
     
     @objc private func toggleDisplayPowerAction(_ sender: NSMenuItem) {
-        guard let displayID = sender.representedObject as? CGDirectDisplayID else { return }
-        
-        let isDisabled = DisplayPowerService.shared.isDisplayDisabled(displayID)
-        if isDisabled {
-            DisplayPowerService.shared.enableDisplay(displayID: displayID)
-        } else {
-            // Confirm before disabling external display
-            let alert = NSAlert()
-            alert.messageText = "Disable Display Warning"
-            alert.informativeText = "Are you sure you want to disable this display? Your screen layout may flash and windows may rearrange."
-            alert.addButton(withTitle: "Disable")
-            alert.addButton(withTitle: "Cancel")
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                DisplayPowerService.shared.disableDisplay(displayID: displayID)
-            }
-        }
+        guard let display = sender.representedObject as? DisplayInfo else { return }
+
+        _ = DisplayPowerService.shared.toggleDisplay(display)
         DisplayManager.shared.refreshDisplays()
     }
     

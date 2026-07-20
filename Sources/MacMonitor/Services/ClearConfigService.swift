@@ -94,6 +94,7 @@ public final class ClearConfigService {
         
         // 4. Reset User Preferences
         LaunchAtLoginService.shared.setEnabled(false)
+        DisplayShortcutService.shared.clearShortcuts()
         let domain = Bundle.main.bundleIdentifier ?? "dev.sumetph.MacMonitor"
         UserDefaults.standard.removePersistentDomain(forName: domain)
         removedItems.append("Reset app preferences")

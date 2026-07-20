@@ -40,6 +40,7 @@ public struct SettingsWindowView: View {
     @ObservedObject private var manager = DisplayManager.shared
     @ObservedObject private var presetStore = DisplayPresetStore.shared
     @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
+    @ObservedObject private var shortcutService = DisplayShortcutService.shared
     
     @State private var activeTab = "diagnostics"
     @State private var hasInitializedTab = false
@@ -92,22 +93,21 @@ public struct SettingsWindowView: View {
         }
     }
     
-    private func toggleDisplayPower(for display: DisplayInfo, isDisabled: Bool) {
-        if isDisabled {
-            DisplayPowerService.shared.enableDisplay(displayID: display.displayID)
-            manager.refreshDisplays()
-        } else {
-            let alert = NSAlert()
-            alert.messageText = "Disable Display Warning"
-            alert.informativeText = "Are you sure you want to disable this display? Your screen layout may flash and windows may rearrange."
-            alert.addButton(withTitle: "Disable")
-            alert.addButton(withTitle: "Cancel")
-            let res = alert.runModal()
-            if res == .alertFirstButtonReturn {
-                DisplayPowerService.shared.disableDisplay(displayID: display.displayID)
-                manager.refreshDisplays()
-            }
+    private func toggleDisplayPower(for display: DisplayInfo) {
+        DisplayPowerService.shared.toggleDisplay(display)
+        manager.refreshDisplays()
+    }
+
+    private func setActionShortcut(
+        _ shortcut: DisplayKeyboardShortcut?,
+        for action: DisplayShortcutAction
+    ) -> Bool {
+        let didSetShortcut = shortcutService.setShortcut(shortcut, for: action)
+        if !didSetShortcut {
+            alertMessage = "This shortcut is already assigned to another action or reserved by macOS."
+            showingAlert = true
         }
+        return didSetShortcut
     }
     
     private func savePreset(for display: DisplayInfo) {
@@ -522,7 +522,7 @@ public struct SettingsWindowView: View {
                         let isDisabled = display.isAppDisconnected || DisplayPowerService.shared.isDisplayDisabled(display.displayID)
                         
                         Button(action: {
-                            toggleDisplayPower(for: display, isDisabled: isDisabled)
+                            toggleDisplayPower(for: display)
                         }) {
                             Text(isDisabled ? "Enable" : "Disable")
                         }
@@ -534,6 +534,47 @@ public struct SettingsWindowView: View {
                         Text("This display has been soft-disconnected from the macOS layout. Click Enable to restore.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Power Toggle Shortcut")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            Text(display.isMain
+                                 ? "The shortcut cannot disable this display while it is the main display."
+                                 : "Works globally. Press Delete while recording to clear it.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        DisplayShortcutRecorder(
+                            shortcut: shortcutService.shortcut(for: display.identifier),
+                            onChange: { shortcut in
+                                let didSetShortcut = shortcutService.setShortcut(shortcut, for: display.identifier)
+                                if !didSetShortcut {
+                                    alertMessage = "This shortcut is already assigned to another display or reserved by macOS."
+                                    showingAlert = true
+                                }
+                                return didSetShortcut
+                            }
+                        )
+                        .frame(width: 140)
+
+                        if shortcutService.shortcut(for: display.identifier) != nil {
+                            Button {
+                                shortcutService.setShortcut(nil, for: display.identifier)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.secondary)
+                            .help("Clear keyboard shortcut")
+                        }
                     }
                 }
                 .padding()
@@ -907,6 +948,87 @@ public struct SettingsWindowView: View {
                 
                 Divider()
                     .padding(.vertical, 8)
+
+                // Multi-display power shortcut
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Multi-Display Power Shortcut")
+                        .font(.headline)
+
+                    Text("Choose multiple displays to switch together. If every selected display is disabled, the shortcut enables them all; otherwise it disables the selected displays that are still active.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(manager.displays) { display in
+                            let isSelected = shortcutService.isIncludedInMultiDisplayShortcut(display.identifier)
+
+                            Toggle(isOn: Binding(
+                                get: { isSelected },
+                                set: { included in
+                                    shortcutService.setIncludedInMultiDisplayShortcut(
+                                        included,
+                                        displayIdentifier: display.identifier
+                                    )
+                                }
+                            )) {
+                                HStack {
+                                    Image(systemName: display.isBuiltIn ? "laptopcomputer" : "desktopcomputer")
+                                        .frame(width: 20)
+                                    Text(display.name)
+                                    if display.isMain {
+                                        Text("Main display — stays on")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                            .disabled(display.isMain && !isSelected)
+                        }
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Text("Shortcut:")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Spacer()
+
+                        DisplayShortcutRecorder(
+                            shortcut: shortcutService.shortcut(for: .multiDisplayPower),
+                            shortcutName: "Multi-display power",
+                            onChange: { shortcut in
+                                setActionShortcut(shortcut, for: .multiDisplayPower)
+                            }
+                        )
+                        .frame(width: 140)
+
+                        if shortcutService.shortcut(for: .multiDisplayPower) != nil {
+                            Button {
+                                shortcutService.setShortcut(nil, for: .multiDisplayPower)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.secondary)
+                            .help("Clear multi-display shortcut")
+                        }
+                    }
+
+                    if shortcutService.multiDisplayIdentifiers.isEmpty {
+                        Text("Select at least one non-main display before using this shortcut.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(Color.secondary.opacity(0.05))
+                .cornerRadius(8)
+
+                Divider()
+                    .padding(.vertical, 8)
                 
                 // Display Recovery Settings
                 VStack(alignment: .leading, spacing: 12) {
@@ -921,11 +1043,39 @@ public struct SettingsWindowView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        Button("Reconnect Displays") {
-                            _ = DisplayPowerService.shared.resetDisplayConnections()
-                            manager.refreshDisplays()
+                        HStack {
+                            Button("Reconnect Displays") {
+                                _ = DisplayPowerService.shared.resetDisplayConnections()
+                                manager.refreshDisplays()
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Spacer()
+
+                            Text("Shortcut:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            DisplayShortcutRecorder(
+                                shortcut: shortcutService.shortcut(for: .reconnectAll),
+                                shortcutName: "Reconnect all displays",
+                                onChange: { shortcut in
+                                    setActionShortcut(shortcut, for: .reconnectAll)
+                                }
+                            )
+                            .frame(width: 140)
+
+                            if shortcutService.shortcut(for: .reconnectAll) != nil {
+                                Button {
+                                    shortcutService.setShortcut(nil, for: .reconnectAll)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.secondary)
+                                .help("Clear reconnect shortcut")
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

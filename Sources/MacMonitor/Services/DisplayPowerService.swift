@@ -77,6 +77,64 @@ public final class DisplayPowerService {
         disabledDisplaySnapshots[display.identifier.id] = display.disconnectedSnapshot()
         persistDisabledDisplaySnapshots()
     }
+
+    @discardableResult
+    public func toggleDisplay(_ display: DisplayInfo) -> Bool {
+        let isDisabled = display.isAppDisconnected || isDisplayDisabled(display.identifier)
+        if isDisabled {
+            return enableDisplay(displayID: display.displayID)
+        }
+
+        guard !display.isMain else {
+            DiagnosticsService.shared.log(
+                displayID: display.displayID,
+                operation: "toggleDisplay",
+                success: false,
+                details: "Cannot disable the main display."
+            )
+            return false
+        }
+
+        return disableDisplay(displayID: display.displayID)
+    }
+
+    @discardableResult
+    public func toggleDisplays(withIdentifiers identifiers: Set<String>) -> Bool {
+        let displays = DisplayManager.shared.displays.filter {
+            identifiers.contains($0.identifier.id)
+        }
+        guard !displays.isEmpty else { return false }
+
+        let shouldEnable = displays.allSatisfy {
+            $0.isAppDisconnected || isDisplayDisabled($0.identifier)
+        }
+        var attemptedOperation = false
+        var allOperationsSucceeded = true
+
+        for display in displays {
+            let isDisabled = display.isAppDisconnected || isDisplayDisabled(display.identifier)
+
+            if shouldEnable {
+                guard isDisabled else { continue }
+                attemptedOperation = true
+                if !enableDisplay(displayID: display.displayID) {
+                    allOperationsSucceeded = false
+                }
+            } else {
+                guard !isDisabled else { continue }
+                guard !display.isMain else {
+                    allOperationsSucceeded = false
+                    continue
+                }
+                attemptedOperation = true
+                if !disableDisplay(displayID: display.displayID) {
+                    allOperationsSucceeded = false
+                }
+            }
+        }
+
+        return attemptedOperation && allOperationsSucceeded
+    }
     
     @discardableResult
     public func resetDisplayConnections() -> Bool {
