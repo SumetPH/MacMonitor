@@ -152,15 +152,9 @@ public final class DisplayManager: ObservableObject {
         
         if forceSync {
             self.displays = tempDisplays
-            // Preset Store auto-apply on connection
-            DisplayPresetStore.shared.objectWillChange.send()
-            DisplayPresetStore.shared.checkAndAutoApply(displays: tempDisplays)
         } else {
             DispatchQueue.main.async {
                 self.displays = tempDisplays
-                // Preset Store auto-apply on connection
-                DisplayPresetStore.shared.objectWillChange.send()
-                DisplayPresetStore.shared.checkAndAutoApply(displays: tempDisplays)
             }
         }
     }

@@ -7,6 +7,11 @@ public final class HiDPIService {
     
     private let fileManager = FileManager.default
     private let overridesPath = "/Library/Displays/Contents/Resources/Overrides"
+
+    private var tempDirectoryURL: URL {
+        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MacMonitor/temp")
+    }
     
     private init() {}
     
@@ -47,7 +52,14 @@ public final class HiDPIService {
     }
     
     public func isHiDPIOverrideEnabled(for display: DisplayInfo) -> Bool {
-        ConfigManifestStore.shared.isHiDPIEnabled(displayIdentifier: display.identifier)
+        guard let vendorID = display.identifier.vendorID,
+              let productID = display.identifier.productID else {
+            return false
+        }
+
+        let path = overrideFileURL(vendorID: vendorID, productID: productID).path
+        return ConfigManifestStore.shared.getManifest().createdFiles.contains(path) &&
+               fileManager.fileExists(atPath: path)
     }
     
     public func overrideFileURL(vendorID: UInt32, productID: UInt32) -> URL {
@@ -79,7 +91,6 @@ public final class HiDPIService {
             ) { result in
                 switch result {
                 case .success(let path):
-                    ConfigManifestStore.shared.setHiDPIEnabled(true, displayIdentifier: display.identifier)
                     self.hotReloadIfNeeded(displayID: display.displayID, enabled: hotReload)
                     completion(.success(path))
                 case .failure(let error):
@@ -90,7 +101,6 @@ public final class HiDPIService {
             removeOverrideFile(vendorID: vendorID, productID: productID) { result in
                 switch result {
                 case .success(let path):
-                    ConfigManifestStore.shared.setHiDPIEnabled(false, displayIdentifier: display.identifier)
                     self.hotReloadIfNeeded(displayID: display.displayID, enabled: hotReload)
                     completion(.success(path))
                 case .failure(let error):
@@ -106,6 +116,16 @@ public final class HiDPIService {
         customResolutions: [(width: Int, height: Int)],
         completion: @escaping (Result<String, Error>) -> Void
     ) {
+        guard !customResolutions.isEmpty,
+              customResolutions.allSatisfy({ (320...8192).contains($0.width) && (200...8192).contains($0.height) }) else {
+            completion(.failure(NSError(
+                domain: "HiDPIService",
+                code: 422,
+                userInfo: [NSLocalizedDescriptionKey: "ความละเอียดต้องอยู่ระหว่าง 320–8192 พิกเซลสำหรับความกว้าง และ 200–8192 พิกเซลสำหรับความสูง"]
+            )))
+            return
+        }
+
         let vendorHex = getVendorHex(vendorID)
         let productHex = getProductHex(productID)
         
@@ -152,31 +172,73 @@ public final class HiDPIService {
                 details: "Created temporary display override plist at \(tempFileURL.path)"
             )
             
-            // Register file to manifest
-            ConfigManifestStore.shared.registerCreatedFile(fileURL.path)
-            
-            // To write to the actual destination, we might need a privileged command.
-            // Let's copy it. If it fails due to permission, we try using PrivilegedFileManager.
-            var writeSuccess = false
-            
-            // Backup existing file if needed
-            if fileManager.fileExists(atPath: fileURL.path) {
-                let backupURL = tempDir.appendingPathComponent("\(fileName).bak")
+            let manifestStore = ConfigManifestStore.shared
+            let manifest = manifestStore.getManifest()
+            let wasManaged = manifest.createdFiles.contains(fileURL.path)
+            let existingBackupPath = manifest.backups[fileURL.path]
+            var backupCreatedForThisWrite: URL?
+
+            if let existingBackupPath,
+               (!isAllowedBackupPath(existingBackupPath) || !fileManager.fileExists(atPath: existingBackupPath)) {
+                completion(.failure(NSError(
+                    domain: "HiDPIService",
+                    code: 409,
+                    userInfo: [NSLocalizedDescriptionKey: "ไม่พบไฟล์ backup เดิม จึงหยุดเพื่อป้องกันการเขียนทับ override ต้นฉบับ"]
+                )))
+                return
+            }
+
+            if fileManager.fileExists(atPath: fileURL.path), !wasManaged, existingBackupPath == nil {
+                let backupURL = tempDir.appendingPathComponent("backup_\(folderName)_\(fileName).plist")
                 if fileManager.fileExists(atPath: backupURL.path) {
-                    try? fileManager.removeItem(at: backupURL)
+                    try fileManager.removeItem(at: backupURL)
                 }
-                
-                // Try backup normally first
+
+                let backupSucceeded: Bool
                 do {
                     try fileManager.copyItem(at: fileURL, to: backupURL)
-                    ConfigManifestStore.shared.registerBackup(originalPath: fileURL.path, backupPath: backupURL.path)
+                    backupSucceeded = true
                 } catch {
-                    // Try backup with privileges
-                    if PrivilegedFileManager.shared.copyItem(fromPath: fileURL.path, toPath: backupURL.path) {
-                        ConfigManifestStore.shared.registerBackup(originalPath: fileURL.path, backupPath: backupURL.path)
+                    backupSucceeded = PrivilegedFileManager.shared.copyItem(fromPath: fileURL.path, toPath: backupURL.path)
+                }
+
+                guard backupSucceeded else {
+                    completion(.failure(NSError(
+                        domain: "HiDPIService",
+                        code: 500,
+                        userInfo: [NSLocalizedDescriptionKey: "สร้าง backup ของ override เดิมไม่สำเร็จ จึงยังไม่ได้แก้ไขไฟล์ระบบ"]
+                    )))
+                    return
+                }
+
+                guard manifestStore.registerBackup(originalPath: fileURL.path, backupPath: backupURL.path) else {
+                    try? fileManager.removeItem(at: backupURL)
+                    completion(.failure(NSError(
+                        domain: "HiDPIService",
+                        code: 500,
+                        userInfo: [NSLocalizedDescriptionKey: "บันทึกข้อมูล backup ลง manifest ไม่สำเร็จ จึงยังไม่ได้แก้ไขไฟล์ระบบ"]
+                    )))
+                    return
+                }
+                backupCreatedForThisWrite = backupURL
+            }
+
+            guard manifestStore.registerCreatedFile(fileURL.path) else {
+                if let backupCreatedForThisWrite {
+                    if manifestStore.unregisterBackup(originalPath: fileURL.path) {
+                        try? fileManager.removeItem(at: backupCreatedForThisWrite)
                     }
                 }
+                completion(.failure(NSError(
+                    domain: "HiDPIService",
+                    code: 500,
+                    userInfo: [NSLocalizedDescriptionKey: "บันทึกเส้นทาง override ลง manifest ไม่สำเร็จ จึงยังไม่ได้แก้ไขไฟล์ระบบ"]
+                )))
+                return
             }
+
+            // To write to the actual destination, we might need a privileged command.
+            var writeSuccess = false
             
             // Try normal operations first
             do {
@@ -196,7 +258,11 @@ public final class HiDPIService {
             if writeSuccess {
                 completion(.success(fileURL.path))
             } else {
-                completion(.failure(NSError(domain: "HiDPIService", code: 403, userInfo: [NSLocalizedDescriptionKey: "ไม่สามารถขอสิทธิ์เขียนไฟล์หน้าจอ (Display Overrides) ในโฟลเดอร์ระบบได้"])))
+                completion(.failure(NSError(
+                    domain: "HiDPIService",
+                    code: 403,
+                    userInfo: [NSLocalizedDescriptionKey: "เขียน Display Override ไม่สำเร็จ ระบบเก็บ manifest และ backup ไว้เพื่อให้ Clear Config กู้คืนได้อย่างปลอดภัย"]
+                )))
             }
             
         } catch {
@@ -219,30 +285,42 @@ public final class HiDPIService {
         let filePath = fileURL.path
         let manifest = ConfigManifestStore.shared.getManifest()
         let backupPath = manifest.backups[filePath]
+
+        if let backupPath,
+           (!isAllowedBackupPath(backupPath) || !fileManager.fileExists(atPath: backupPath)) {
+            completion(.failure(NSError(
+                domain: "HiDPIService",
+                code: 409,
+                userInfo: [NSLocalizedDescriptionKey: "ไม่พบไฟล์ backup ที่ manifest ระบุ จึงไม่ลบ override เพื่อป้องกันข้อมูลต้นฉบับสูญหาย"]
+            )))
+            return
+        }
         
         if let backupPath, fileManager.fileExists(atPath: backupPath) {
-            do {
-                if fileManager.fileExists(atPath: filePath) {
-                    try fileManager.removeItem(atPath: filePath)
-                }
-                try fileManager.copyItem(atPath: backupPath, toPath: filePath)
-                ConfigManifestStore.shared.unregisterCreatedFile(filePath)
-                ConfigManifestStore.shared.unregisterBackup(originalPath: filePath)
-                completion(.success("กู้คืน override เดิมจาก backup แล้ว: \(filePath)"))
+            guard restoreBackup(from: backupPath, to: filePath) else {
+                completion(.failure(NSError(
+                    domain: "HiDPIService",
+                    code: 500,
+                    userInfo: [NSLocalizedDescriptionKey: "กู้คืน override เดิมจาก backup ไม่สำเร็จ ระบบเก็บ backup และ manifest ไว้สำหรับลองใหม่"]
+                )))
                 return
-            } catch {
-                _ = PrivilegedFileManager.shared.removeItem(atPath: filePath)
-                if PrivilegedFileManager.shared.copyItem(fromPath: backupPath, toPath: filePath) {
-                    ConfigManifestStore.shared.unregisterCreatedFile(filePath)
-                    ConfigManifestStore.shared.unregisterBackup(originalPath: filePath)
-                    completion(.success("กู้คืน override เดิมด้วยสิทธิ์ผู้ดูแลระบบแล้ว: \(filePath)"))
-                    return
-                }
             }
+
+            guard ConfigManifestStore.shared.unregisterCreatedFile(filePath),
+                  ConfigManifestStore.shared.unregisterBackup(originalPath: filePath) else {
+                completion(.failure(NSError(domain: "HiDPIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "กู้คืนไฟล์แล้ว แต่ปรับปรุง manifest ไม่สำเร็จ โปรดลอง Clear Config อีกครั้ง"])))
+                return
+            }
+            try? fileManager.removeItem(atPath: backupPath)
+            completion(.success("กู้คืน override เดิมจาก backup แล้ว: \(filePath)"))
+            return
         }
         
         guard fileManager.fileExists(atPath: filePath) else {
-            ConfigManifestStore.shared.unregisterCreatedFile(filePath)
+            guard ConfigManifestStore.shared.unregisterCreatedFile(filePath) else {
+                completion(.failure(NSError(domain: "HiDPIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "ไม่พบ override แต่ปรับปรุง manifest ไม่สำเร็จ"])))
+                return
+            }
             completion(.success("ไม่มี override ให้ลบสำหรับจอนี้"))
             return
         }
@@ -254,16 +332,49 @@ public final class HiDPIService {
         
         do {
             try fileManager.removeItem(atPath: filePath)
-            ConfigManifestStore.shared.unregisterCreatedFile(filePath)
+            guard ConfigManifestStore.shared.unregisterCreatedFile(filePath) else {
+                completion(.failure(NSError(domain: "HiDPIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "ลบ override แล้ว แต่ปรับปรุง manifest ไม่สำเร็จ"])))
+                return
+            }
             completion(.success("ลบ override แล้ว: \(filePath)"))
         } catch {
             if PrivilegedFileManager.shared.removeItem(atPath: filePath) {
-                ConfigManifestStore.shared.unregisterCreatedFile(filePath)
+                guard ConfigManifestStore.shared.unregisterCreatedFile(filePath) else {
+                    completion(.failure(NSError(domain: "HiDPIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "ลบ override แล้ว แต่ปรับปรุง manifest ไม่สำเร็จ"])))
+                    return
+                }
                 completion(.success("ลบ override ด้วยสิทธิ์ผู้ดูแลระบบแล้ว: \(filePath)"))
             } else {
                 completion(.failure(NSError(domain: "HiDPIService", code: 403, userInfo: [NSLocalizedDescriptionKey: "ไม่สามารถลบไฟล์ override ของจอนี้ได้"])))
             }
         }
+    }
+
+    private func restoreBackup(from backupPath: String, to originalPath: String) -> Bool {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: backupPath))
+            do {
+                try data.write(to: URL(fileURLWithPath: originalPath), options: .atomic)
+                return true
+            } catch {
+                try fileManager.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
+                let stagedRestoreURL = tempDirectoryURL.appendingPathComponent("restore-\(UUID().uuidString).plist")
+                try data.write(to: stagedRestoreURL, options: .atomic)
+                defer { try? fileManager.removeItem(at: stagedRestoreURL) }
+                return PrivilegedFileManager.shared.copyItem(fromPath: stagedRestoreURL.path, toPath: originalPath)
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private func isAllowedBackupPath(_ path: String) -> Bool {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let allowedDirectory = tempDirectoryURL.standardizedFileURL.path + "/"
+        guard url.path.hasPrefix(allowedDirectory) else { return false }
+
+        let attributes = try? fileManager.attributesOfItem(atPath: url.path)
+        return attributes?[.type] as? FileAttributeType != .typeSymbolicLink
     }
     
     private func hotReloadIfNeeded(displayID: CGDirectDisplayID, enabled: Bool) {

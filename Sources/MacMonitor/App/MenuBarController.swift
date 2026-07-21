@@ -60,25 +60,6 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         
         menu.addItem(NSMenuItem.separator())
         
-        // Presets submenu
-        let presetsItem = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
-        let presetsSubmenu = NSMenu()
-        let presets = DisplayPresetStore.shared.presets
-        if presets.isEmpty {
-            presetsSubmenu.addItem(NSMenuItem(title: "No saved presets", action: nil, keyEquivalent: ""))
-        } else {
-            for preset in presets {
-                let item = NSMenuItem(title: preset.name, action: #selector(applyPresetAction(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = preset
-                presetsSubmenu.addItem(item)
-            }
-        }
-        presetsItem.submenu = presetsSubmenu
-        menu.addItem(presetsItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
         // Menu utilities
         let reconnectItem = NSMenuItem(title: "Reconnect Displays", action: #selector(resetDisplayConnectionsAction), keyEquivalent: "")
         reconnectItem.target = self
@@ -266,12 +247,6 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         guard let display = sender.representedObject as? DisplayInfo else { return }
 
         _ = DisplayPowerService.shared.toggleDisplay(display)
-        DisplayManager.shared.refreshDisplays()
-    }
-    
-    @objc private func applyPresetAction(_ sender: NSMenuItem) {
-        guard let preset = sender.representedObject as? DisplayPreset else { return }
-        _ = DisplayPresetStore.shared.applyPreset(preset, availableDisplays: DisplayManager.shared.displays)
         DisplayManager.shared.refreshDisplays()
     }
     

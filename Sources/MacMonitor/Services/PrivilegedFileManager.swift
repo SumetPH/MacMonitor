@@ -49,4 +49,9 @@ public final class PrivilegedFileManager {
     public func removeItem(atPath path: String) -> Bool {
         return executePrivileged(command: "rm -f \(shellQuoted(path))")
     }
+
+    /// ลบโฟลเดอร์ด้วยสิทธิ์ผู้ดูแลระบบเฉพาะเมื่อโฟลเดอร์ว่างเท่านั้น
+    public func removeDirectoryIfEmpty(atPath path: String) -> Bool {
+        return executePrivileged(command: "rmdir \(shellQuoted(path))")
+    }
 }

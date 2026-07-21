@@ -9,9 +9,7 @@ public final class ConfigManifestStore {
     
     private var appSupportURL: URL {
         let urls = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-        let appSupport = urls[0].appendingPathComponent("MacMonitor")
-        try? fileManager.createDirectory(at: appSupport, withIntermediateDirectories: true, attributes: nil)
-        return appSupport
+        return urls[0].appendingPathComponent("MacMonitor")
     }
     
     private var manifestURL: URL {
@@ -26,51 +24,65 @@ public final class ConfigManifestStore {
         return manifest
     }
     
-    public func registerCreatedFile(_ path: String) {
-        if !manifest.createdFiles.contains(path) {
-            manifest.createdFiles.append(path)
-            saveManifest()
+    @discardableResult
+    public func registerCreatedFile(_ path: String) -> Bool {
+        updateManifest { manifest in
+            if !manifest.createdFiles.contains(path) {
+                manifest.createdFiles.append(path)
+            }
         }
     }
     
-    public func unregisterCreatedFile(_ path: String) {
-        manifest.createdFiles.removeAll { $0 == path }
-        saveManifest()
+    @discardableResult
+    public func unregisterCreatedFile(_ path: String) -> Bool {
+        updateManifest { manifest in
+            manifest.createdFiles.removeAll { $0 == path }
+        }
     }
     
-    public func registerBackup(originalPath: String, backupPath: String) {
-        manifest.backups[originalPath] = backupPath
-        saveManifest()
+    @discardableResult
+    public func registerBackup(originalPath: String, backupPath: String) -> Bool {
+        updateManifest { manifest in
+            manifest.backups[originalPath] = backupPath
+        }
     }
     
-    public func unregisterBackup(originalPath: String) {
-        manifest.backups.removeValue(forKey: originalPath)
-        saveManifest()
+    @discardableResult
+    public func unregisterBackup(originalPath: String) -> Bool {
+        updateManifest { manifest in
+            manifest.backups.removeValue(forKey: originalPath)
+        }
     }
     
-    public func setExperimentalFlagsEnabled(_ enabled: Bool) {
-        manifest.experimentalFlagsEnabled = enabled
-        saveManifest()
+    @discardableResult
+    public func setExperimentalFlagsEnabled(_ enabled: Bool) -> Bool {
+        updateManifest { manifest in
+            manifest.experimentalFlagsEnabled = enabled
+        }
     }
     
     public func isHiDPIEnabled(displayIdentifier: DisplayIdentifier) -> Bool {
         manifest.hiDPIEnabledDisplayIDs.contains(displayIdentifier.id)
     }
     
-    public func setHiDPIEnabled(_ enabled: Bool, displayIdentifier: DisplayIdentifier) {
-        if enabled {
-            if !manifest.hiDPIEnabledDisplayIDs.contains(displayIdentifier.id) {
-                manifest.hiDPIEnabledDisplayIDs.append(displayIdentifier.id)
+    @discardableResult
+    public func setHiDPIEnabled(_ enabled: Bool, displayIdentifier: DisplayIdentifier) -> Bool {
+        updateManifest { manifest in
+            if enabled {
+                if !manifest.hiDPIEnabledDisplayIDs.contains(displayIdentifier.id) {
+                    manifest.hiDPIEnabledDisplayIDs.append(displayIdentifier.id)
+                }
+            } else {
+                manifest.hiDPIEnabledDisplayIDs.removeAll { $0 == displayIdentifier.id }
             }
-        } else {
-            manifest.hiDPIEnabledDisplayIDs.removeAll { $0 == displayIdentifier.id }
         }
-        saveManifest()
     }
     
-    public func clearManifest() {
-        manifest = DisplayConfigManifest()
-        saveManifest()
+    @discardableResult
+    public func clearManifest() -> Bool {
+        updateManifest { manifest in
+            manifest = DisplayConfigManifest()
+        }
     }
     
     private func loadManifest() {
@@ -86,14 +98,27 @@ public final class ConfigManifestStore {
         }
     }
     
-    private func saveManifest() {
+    private func updateManifest(_ update: (inout DisplayConfigManifest) -> Void) -> Bool {
+        var updatedManifest = manifest
+        update(&updatedManifest)
+
+        guard updatedManifest != manifest else { return true }
+
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(manifest)
-            try data.write(to: manifestURL, options: .atomic)
+            try saveManifest(updatedManifest)
+            manifest = updatedManifest
+            return true
         } catch {
             print("[ConfigManifestStore] Failed to save manifest: \(error.localizedDescription)")
+            return false
         }
+    }
+
+    private func saveManifest(_ manifest: DisplayConfigManifest) throws {
+        try fileManager.createDirectory(at: appSupportURL, withIntermediateDirectories: true, attributes: nil)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        let data = try encoder.encode(manifest)
+        try data.write(to: manifestURL, options: .atomic)
     }
 }

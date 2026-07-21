@@ -1,6 +1,6 @@
 # Mac Monitor
 
-Mac Monitor คือแอปเมนูบาร์สำหรับ macOS ที่ช่วยจัดการจอภาพแบบละเอียด เช่น ความละเอียดหน้าจอ, HiDPI scaled resolutions, refresh rate, rotation, preset, brightness/contrast ผ่าน DDC/CI และการสร้าง display override สำหรับจอที่ต้องการโหมด HiDPI เพิ่มเติม
+Mac Monitor คือแอปเมนูบาร์สำหรับ macOS ที่ช่วยจัดการจอภาพแบบละเอียด เช่น ความละเอียดหน้าจอ, HiDPI scaled resolutions, refresh rate, rotation, brightness/contrast ผ่าน DDC/CI และการสร้าง display override สำหรับจอที่ต้องการโหมด HiDPI เพิ่มเติม
 
 โปรเจกต์นี้เป็น native Swift/SwiftUI app สำหรับ macOS 14+ และตั้งใจให้ใช้งานกับเครื่อง Mac จริง เพราะหลายฟีเจอร์ต้องคุยกับ CoreGraphics, IOKit, DisplayServices และไฟล์ override ของระบบ
 
@@ -12,8 +12,8 @@ Mac Monitor คือแอปเมนูบาร์สำหรับ macOS �
 - หมุนจอ 0, 90, 180, 270 องศา เมื่อฮาร์ดแวร์และ macOS รองรับ
 - disable/enable จอภายนอกแบบ best effort ด้วยการจัดการ display layout และ DDC/CI standby fallback
 - ปรับ brightness/contrast ของจอภายนอกผ่าน DDC/CI และใช้ native brightness path สำหรับจอ built-in/Apple-branded เมื่อรองรับ
-- บันทึก preset ต่อจอ และ auto-apply เมื่อจอนั้นถูกต่อกลับมา
 - Clear Config และ Uninstall แบบอิง manifest เพื่อลบเฉพาะไฟล์ที่แอปสร้างหรือ restore backup ที่แอปเก็บไว้
+- ขั้นตอน Remove Mac Monitor Data จะล้างข้อมูลและปิดแอป แต่ไม่ลบตัว `Mac Monitor.app`; ผู้ใช้ต้องย้ายไฟล์แอปไป Trash เอง
 - Export diagnostics สำหรับดูสถานะจอ โหมดที่รองรับ และ operation log ล่าสุด
 
 ## ข้อควรระวัง
@@ -74,7 +74,7 @@ dist/Mac Monitor.app
 1. เปิดแอป แล้วคลิกไอคอน Mac Monitor บน menu bar
 2. เลือกจอที่ต้องการจัดการจากเมนู
 3. ใช้เมนูย่อยสำหรับ resolution, refresh rate, rotation หรือ enable/disable display
-4. เปิด `Settings...` เพื่อจัดการ preset, HiDPI override, brightness, diagnostics, clear config และ uninstall
+4. เปิด `Settings...` เพื่อจัดการ HiDPI override, brightness, diagnostics, clear config และ uninstall
 5. ถ้าเปลี่ยน resolution แล้วมีหน้าต่างยืนยัน ให้กดยืนยันภายใน 15 วินาทีเพื่อเก็บค่าใหม่
 
 ## Recovery

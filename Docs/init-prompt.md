@@ -210,33 +210,7 @@ Requirements:
 - The app must gracefully show unsupported instead of crashing.
 - All DDC code must be isolated in `DDCService`.
 
-Core Feature 7: Presets
-
-Implement display presets.
-
-A preset should store:
-
-- display identifier
-- display name
-- vendor/product info when available
-- selected resolution
-- selected pixel resolution
-- refresh rate
-- HiDPI status
-- rotation
-- brightness if available
-- enabled/disabled desired state if available
-
-Requirements:
-
-- Save presets locally using JSON or UserDefaults.
-- Allow applying a preset from the menu bar.
-- Allow applying a preset from the settings window.
-- Handle missing displays gracefully.
-- Avoid applying repeatedly in a loop.
-- Add an auto-apply option when a known display is connected.
-
-Core Feature 8: Clear config / uninstall
+Core Feature 7: Clear config / uninstall
 
 Implement a dedicated “Clear Config / Uninstall” section.
 
@@ -249,7 +223,6 @@ Clear Config should:
 - remove app-created display override files
 - remove app-created generated HiDPI config files
 - remove app-created backup files only when user confirms
-- reset saved presets
 - reset app preferences
 - remove app-created launch agents if any
 - remove app-created helper tool registration if any
@@ -285,7 +258,7 @@ If the app writes to `/Library/Displays/Contents/Resources/Overrides` or any sys
 - use that manifest for cleanup
 - never blindly delete a whole system folder
 
-Core Feature 9: Menu bar UX
+Core Feature 8: Menu bar UX
 
 Create a menu bar app.
 
@@ -299,7 +272,6 @@ Menu bar should show:
 - quick resolution choices
 - quick refresh rate choices
 - enable/disable display action
-- presets
 - open settings
 - diagnostics
 - quit
@@ -313,12 +285,10 @@ Settings window should include:
 - HiDPI section
 - enable/disable section
 - DDC controls
-- presets
-- auto-apply settings
 - clear config / uninstall section
 - diagnostics panel
 
-Core Feature 10: Architecture
+Core Feature 9: Architecture
 
 Use this structure or a similarly clean structure:
 
@@ -331,7 +301,6 @@ Use this structure or a similarly clean structure:
 - `RotationService`
 - `DisplayPowerService`
 - `DDCService`
-- `DisplayPresetStore`
 - `DisplayReconfigurationObserver`
 - `ExperimentalDisplayService`
 - `ConfigManifestStore`
@@ -343,7 +312,6 @@ Models:
 
 - `DisplayInfo`
 - `DisplayModeInfo`
-- `DisplayPreset`
 - `DisplayIdentifier`
 - `DisplayConfigManifest`
 - `DisplayOperationResult`
@@ -358,7 +326,7 @@ Rules:
 - Do not hardcode display IDs.
 - Add detailed comments for private/undocumented APIs.
 
-Core Feature 11: Diagnostics
+Core Feature 10: Diagnostics
 
 Add a diagnostics screen and export button.
 
@@ -379,7 +347,7 @@ Diagnostics should include:
 
 Allow exporting diagnostics as JSON or text.
 
-Core Feature 12: README
+Core Feature 11: README
 
 Create a detailed README.
 
@@ -412,17 +380,16 @@ Implementation plan:
 5. Implement HiDPI detection and HiDPI mode selection.
 6. Implement refresh rate selection.
 7. Implement rotation.
-8. Implement presets.
-9. Implement display connect/disconnect observer.
-10. Implement enable/disable display best-effort.
-11. Implement DDC/CI support.
-12. Implement experimental custom HiDPI enabling.
-13. Implement config manifest tracking.
-14. Implement Clear Config.
-15. Implement Uninstall cleanup.
-16. Add diagnostics export.
-17. Add tests.
-18. Write README.
+8. Implement display connect/disconnect observer.
+9. Implement enable/disable display best-effort.
+10. Implement DDC/CI support.
+11. Implement experimental custom HiDPI enabling.
+12. Implement config manifest tracking.
+13. Implement Clear Config.
+14. Implement Uninstall cleanup.
+15. Add diagnostics export.
+16. Add tests.
+17. Write README.
 
 Testing:
 Add unit tests for:
@@ -430,8 +397,6 @@ Add unit tests for:
 - HiDPI detection
 - display mode classification
 - refresh rate grouping
-- preset serialization
-- display matching
 - config manifest cleanup logic
 
 Manual test checklist:
@@ -441,8 +406,6 @@ Manual test checklist:
 - switch HiDPI mode
 - switch refresh rate
 - rotate display
-- create preset
-- apply preset
 - unplug/replug display
 - disable external display
 - re-enable external display

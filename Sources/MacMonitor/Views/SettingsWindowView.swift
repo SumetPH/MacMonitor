@@ -38,22 +38,18 @@ struct RotationControlView: View {
 
 public struct SettingsWindowView: View {
     @ObservedObject private var manager = DisplayManager.shared
-    @ObservedObject private var presetStore = DisplayPresetStore.shared
     @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var shortcutService = DisplayShortcutService.shared
     
     @State private var activeTab = "diagnostics"
     @State private var hasInitializedTab = false
     
-    // Preset Creation State
-    @State private var newPresetName = ""
-    
     // Experimental Custom Override state
-    @State private var hotReloadHiDPI = true
+    @State private var hotReloadHiDPI = false
     
     // Per-display Custom Override State
-    @State private var displayOverridesEnabled: [CGDirectDisplayID: Bool] = [:]
-    @State private var displayCustomResolutions: [CGDirectDisplayID: [CustomResolution]] = [:]
+    @State private var displayOverridesEnabled: [String: Bool] = [:]
+    @State private var displayCustomResolutions: [String: [CustomResolution]] = [:]
     @State private var newResolutionWidth = 1920
     @State private var newResolutionHeight = 1080
     
@@ -62,6 +58,7 @@ public struct SettingsWindowView: View {
     @State private var showingAlert = false
     @State private var showingUninstallReport = false
     @State private var uninstallReportText = ""
+    @State private var uninstallCompletedWithWarnings = false
     
     public init() {}
     
@@ -110,42 +107,35 @@ public struct SettingsWindowView: View {
         return didSetShortcut
     }
     
-    private func savePreset(for display: DisplayInfo) {
-        guard !newPresetName.isEmpty else { return }
-        let currentBr = DDCService.shared.readBrightness(displayID: display.displayID)
-        let preset = DisplayPreset(
-            name: newPresetName,
-            displayUUID: display.identifier.uuid,
-            displayVendorID: display.identifier.vendorID,
-            displayProductID: display.identifier.productID,
-            displaySerialNumber: display.identifier.serialNumber,
-            width: display.currentWidth,
-            height: display.currentHeight,
-            pixelWidth: display.currentPixelWidth,
-            pixelHeight: display.currentPixelHeight,
-            refreshRate: display.refreshRate,
-            isHiDPI: display.isHiDPI,
-            rotation: display.rotation,
-            brightness: currentBr
-        )
-        presetStore.savePreset(preset)
-        newPresetName = ""
+    private func overrideStorageID(for display: DisplayInfo) -> String {
+        if let uuid = display.identifier.uuid, !uuid.isEmpty {
+            return uuid
+        }
+
+        if let serialNumber = display.identifier.serialNumber, serialNumber != 0 {
+            return display.identifier.id
+        }
+
+        // Some displays do not expose a stable UUID or serial number. Keep their
+        // draft settings isolated for the current connection instead of sharing
+        // them through a potentially-colliding vendor/product key.
+        return "display-\(display.displayID)"
     }
-    
+
     private func saveResolutionsToUserDefaults(for display: DisplayInfo, resolutions: [CustomResolution]) {
-        let key = "MacMonitor.CustomResolutions.\(display.identifier.id)"
+        let key = "MacMonitor.CustomResolutions.\(overrideStorageID(for: display))"
         if let data = try? JSONEncoder().encode(resolutions) {
             UserDefaults.standard.set(data, forKey: key)
         }
     }
     
     private func loadResolutionsFromUserDefaults(for display: DisplayInfo) -> [CustomResolution] {
-        let key = "MacMonitor.CustomResolutions.\(display.identifier.id)"
+        let key = "MacMonitor.CustomResolutions.\(overrideStorageID(for: display))"
         if let data = UserDefaults.standard.data(forKey: key),
            let resolutions = try? JSONDecoder().decode([CustomResolution].self, from: data) {
             return resolutions
         }
-        
+
         // Migrate from old single key if available
         let keyWidth = "MacMonitor.CustomWidth.\(display.identifier.id)"
         let keyHeight = "MacMonitor.CustomHeight.\(display.identifier.id)"
@@ -156,13 +146,13 @@ public struct SettingsWindowView: View {
             return [CustomResolution(width: savedWidth, height: savedHeight)]
         }
         
-        // Default list
-        return [CustomResolution(width: 1920, height: 1080)]
+        return []
     }
     
     private func loadCustomResolutionsList(for display: DisplayInfo) {
-        if displayCustomResolutions[display.displayID] == nil {
-            displayCustomResolutions[display.displayID] = loadResolutionsFromUserDefaults(for: display)
+        let storageID = overrideStorageID(for: display)
+        if displayCustomResolutions[storageID] == nil {
+            displayCustomResolutions[storageID] = loadResolutionsFromUserDefaults(for: display)
         }
     }
     
@@ -176,42 +166,24 @@ public struct SettingsWindowView: View {
     
     private func loadAllOverridesStates() {
         for display in manager.displays {
-            let keyToggle = "MacMonitor.CustomOverrideToggle.\(display.identifier.id)"
-            if UserDefaults.standard.object(forKey: keyToggle) != nil {
-                displayOverridesEnabled[display.displayID] = UserDefaults.standard.bool(forKey: keyToggle)
-            } else {
-                displayOverridesEnabled[display.displayID] = HiDPIService.shared.isHiDPIOverrideEnabled(for: display)
-            }
+            let storageID = overrideStorageID(for: display)
+            displayOverridesEnabled[storageID] = HiDPIService.shared.isHiDPIOverrideEnabled(for: display)
+            UserDefaults.standard.removeObject(forKey: "MacMonitor.CustomOverrideToggle.\(display.identifier.id)")
             loadCustomResolutionsList(for: display)
         }
     }
     
     private func ensureOverrideStateLoaded(for display: DisplayInfo) {
-        if displayOverridesEnabled[display.displayID] == nil {
-            let keyToggle = "MacMonitor.CustomOverrideToggle.\(display.identifier.id)"
-            if UserDefaults.standard.object(forKey: keyToggle) != nil {
-                displayOverridesEnabled[display.displayID] = UserDefaults.standard.bool(forKey: keyToggle)
-            } else {
-                displayOverridesEnabled[display.displayID] = HiDPIService.shared.isHiDPIOverrideEnabled(for: display)
-            }
+        let storageID = overrideStorageID(for: display)
+        if displayOverridesEnabled[storageID] == nil {
+            displayOverridesEnabled[storageID] = HiDPIService.shared.isHiDPIOverrideEnabled(for: display)
         }
         loadCustomResolutionsList(for: display)
     }
     
-    private func handleToggleOverride(for display: DisplayInfo, enabled: Bool) {
-        displayOverridesEnabled[display.displayID] = enabled
-        let keyToggle = "MacMonitor.CustomOverrideToggle.\(display.identifier.id)"
-        UserDefaults.standard.set(enabled, forKey: keyToggle)
-        
-        if enabled {
-            setHiDPIOverride(enabled: true, for: display)
-        } else {
-            setHiDPIOverride(enabled: false, for: display)
-        }
-    }
-    
     private func setHiDPIOverride(enabled: Bool, for display: DisplayInfo) {
-        let resolutions = displayCustomResolutions[display.displayID] ?? [CustomResolution(width: 1920, height: 1080)]
+        let storageID = overrideStorageID(for: display)
+        let resolutions = displayCustomResolutions[storageID] ?? []
         let customTupleArray = resolutions.map { (width: $0.width, height: $0.height) }
         
         HiDPIService.shared.setHiDPIOverrideEnabled(
@@ -225,57 +197,95 @@ public struct SettingsWindowView: View {
                 alertMessage = "\(message)\n\(hotReloadHiDPI ? "Reloaded config. Reconnect display if mode does not appear." : "Stored config. Reconnect or restart to apply.")"
                 showingAlert = true
                 manager.refreshDisplays()
-                displayOverridesEnabled[display.displayID] = enabled
+                loadAllOverridesStates()
             case .failure(let err):
                 alertMessage = "Failed to modify HiDPI override: \(err.localizedDescription)"
                 showingAlert = true
-                displayOverridesEnabled[display.displayID] = !enabled
+                loadAllOverridesStates()
             }
+        }
+    }
+
+    private func confirmOverrideChange(enabled: Bool, for display: DisplayInfo) {
+        let storageID = overrideStorageID(for: display)
+        let resolutions = displayCustomResolutions[storageID] ?? []
+
+        if enabled && resolutions.isEmpty {
+            alertMessage = "Add at least one valid resolution before enabling the override."
+            showingAlert = true
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = enabled ? "Apply Custom Display Override?" : "Disable Custom Display Override?"
+        let resolutionText = resolutions.map { "\($0.width) × \($0.height)" }.joined(separator: ", ")
+        var details = enabled
+            ? "This writes a macOS display override for every display with the same vendor and product IDs.\n\nResolutions: \(resolutionText)"
+            : "This restores the original override backup, or removes the file created by Mac Monitor. Displays with the same vendor and product IDs are affected together."
+        if hotReloadHiDPI {
+            details += "\n\nImmediate reload may temporarily disconnect the display."
+        } else {
+            details += "\n\nReconnect the display or restart macOS for the change to appear."
+        }
+        alert.informativeText = details
+        alert.addButton(withTitle: enabled ? "Apply Override" : "Disable Override")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            setHiDPIOverride(enabled: enabled, for: display)
         }
     }
     
     private func addResolution(width: Int, height: Int, for display: DisplayInfo) {
-        guard width > 0, height > 0 else { return }
-        var list = displayCustomResolutions[display.displayID] ?? []
+        guard (320...8192).contains(width), (200...8192).contains(height) else { return }
+        let storageID = overrideStorageID(for: display)
+        var list = displayCustomResolutions[storageID] ?? []
         if !list.contains(where: { $0.width == width && $0.height == height }) {
             list.append(CustomResolution(width: width, height: height))
-            displayCustomResolutions[display.displayID] = list
+            displayCustomResolutions[storageID] = list
             saveResolutionsToUserDefaults(for: display, resolutions: list)
-            
-            if displayOverridesEnabled[display.displayID] == true {
-                setHiDPIOverride(enabled: true, for: display)
-            }
         }
     }
     
     private func removeResolution(at index: Int, for display: DisplayInfo) {
-        var list = displayCustomResolutions[display.displayID] ?? []
+        let storageID = overrideStorageID(for: display)
+        var list = displayCustomResolutions[storageID] ?? []
         guard list.indices.contains(index) else { return }
         list.remove(at: index)
-        displayCustomResolutions[display.displayID] = list
+        displayCustomResolutions[storageID] = list
         saveResolutionsToUserDefaults(for: display, resolutions: list)
-        
-        if displayOverridesEnabled[display.displayID] == true {
-            if list.isEmpty {
-                handleToggleOverride(for: display, enabled: false)
-            } else {
-                setHiDPIOverride(enabled: true, for: display)
-            }
+    }
+
+    private func resolutionInputError(for display: DisplayInfo) -> String? {
+        guard (320...8192).contains(newResolutionWidth),
+              (200...8192).contains(newResolutionHeight) else {
+            return "Width must be 320–8192 and height must be 200–8192."
         }
+
+        let storageID = overrideStorageID(for: display)
+        let resolutions = displayCustomResolutions[storageID] ?? []
+        if resolutions.contains(where: { $0.width == newResolutionWidth && $0.height == newResolutionHeight }) {
+            return "This resolution is already in the list."
+        }
+        return nil
     }
     
     private func clearConfigAndRestore() {
         let alert = NSAlert()
         alert.messageText = "Confirm Resetting All Configurations?"
-        alert.informativeText = "This action will restore original backup files and reset all user preferences. This cannot be undone."
+        let preview = ClearConfigService.shared.cleanupPreview()
+        alert.informativeText = (["The following actions will be performed:", ""] + preview.map { "• \($0)" } + ["", "If any system file cannot be restored safely, recovery data will be kept and the reset will stop."]).joined(separator: "\n")
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         let res = alert.runModal()
         if res == .alertFirstButtonReturn {
             ClearConfigService.shared.performClearConfig(confirmBackupsRestore: true) { result in
                 switch result {
-                case .success:
-                    alertMessage = "All Mac Monitor settings reset successfully."
+                case .success(let items):
+                    displayOverridesEnabled.removeAll()
+                    displayCustomResolutions.removeAll()
+                    loadAllOverridesStates()
+                    alertMessage = (["Mac Monitor settings were reset successfully:"] + items.map { "• \($0)" }).joined(separator: "\n")
                     showingAlert = true
                     manager.refreshDisplays()
                 case .failure(let err):
@@ -288,16 +298,24 @@ public struct SettingsWindowView: View {
     
     private func uninstallApp() {
         let alert = NSAlert()
-        alert.messageText = "Confirm Complete Uninstallation?"
-        alert.informativeText = "The application will clean all configurations and terminate. A summary report will be presented in the final step."
-        alert.addButton(withTitle: "Uninstall")
+        alert.messageText = "Clean Mac Monitor Data and Quit?"
+        let preview = ClearConfigService.shared.cleanupPreview()
+        alert.informativeText = (["Mac Monitor will:", ""] + preview.map { "• \($0)" } + [
+            "• Remove its Application Support, cache, and log folders",
+            "• Save a cleanup report to the Desktop",
+            "• Quit after you review the report",
+            "",
+            "The Mac Monitor.app file is not deleted. Move it to Trash afterward to finish uninstalling."
+        ]).joined(separator: "\n")
+        alert.addButton(withTitle: "Clean Data")
         alert.addButton(withTitle: "Cancel")
         let res = alert.runModal()
         if res == .alertFirstButtonReturn {
             UninstallService.shared.performUninstall { result in
                 switch result {
                 case .success(let report):
-                    uninstallReportText = report
+                    uninstallReportText = report.text
+                    uninstallCompletedWithWarnings = report.hasWarnings
                     showingUninstallReport = true
                 case .failure(let err):
                     alertMessage = "Uninstall failed: \(err.localizedDescription)"
@@ -433,7 +451,7 @@ public struct SettingsWindowView: View {
         }
         .sheet(isPresented: $showingUninstallReport) {
             VStack(spacing: 16) {
-                Text("Uninstall Completed Successfully")
+                Text(uninstallCompletedWithWarnings ? "Data Cleanup Completed with Warnings" : "Data Cleanup Completed")
                     .font(.headline)
                 ScrollView {
                     Text(uninstallReportText)
@@ -445,7 +463,7 @@ public struct SettingsWindowView: View {
                 }
                 .frame(width: 500, height: 300)
                 
-                Button("Close") {
+                Button("Quit Mac Monitor") {
                     showingUninstallReport = false
                     NSApplication.shared.terminate(nil)
                 }
@@ -700,211 +718,140 @@ public struct SettingsWindowView: View {
                     .background(Color.secondary.opacity(0.05))
                     .cornerRadius(8)
                     
-                    // 4. Presets
+                    // 4. Custom Display Overrides (Per-display custom overrides)
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Display Presets")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Save current display settings as preset:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                TextField("e.g. Coding Mode, Sunset, Gaming...", text: $newPresetName)
-                                    .textFieldStyle(.roundedBorder)
-                                
-                                Button("Save Preset") {
-                                    savePreset(for: display)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(newPresetName.isEmpty)
-                            }
-                        }
-                        
-                        let displayPresets = presetStore.presets.filter {
-                            $0.displayUUID == display.identifier.uuid ||
-                            ($0.displayVendorID == display.identifier.vendorID && $0.displayProductID == display.identifier.productID)
-                        }
-                        
-                        if displayPresets.isEmpty {
-                            Text("No presets saved for this display yet.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 8)
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(displayPresets) { preset in
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(preset.name)
-                                                .fontWeight(.bold)
-                                            Text("\(preset.width)x\(preset.height) @ \(Int(preset.refreshRate))Hz | Rotation: \(preset.rotation)° \(preset.isHiDPI ? "(HiDPI)" : "")")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        
-                                        Toggle("Auto Apply", isOn: Binding(
-                                            get: { preset.autoApply },
-                                            set: { val in
-                                                var updated = preset
-                                                updated.autoApply = val
-                                                presetStore.savePreset(updated)
-                                            }
-                                        ))
-                                        .font(.caption)
-                                        .toggleStyle(.checkbox)
-                                        .padding(.trailing, 8)
-                                        
-                                        Button("Apply") {
-                                            _ = presetStore.applyPreset(preset, availableDisplays: manager.displays)
-                                            manager.refreshDisplays()
-                                        }
-                                        .buttonStyle(.bordered)
-                                        
-                                        Button(action: {
-                                            presetStore.deletePreset(id: preset.id)
-                                        }) {
-                                            Image(systemName: "trash")
-                                                .foregroundColor(.red)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(.leading, 4)
-                                    }
-                                    .padding(8)
-                                    .background(Color.black.opacity(0.1))
-                                    .cornerRadius(6)
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(Color.secondary.opacity(0.05))
-                    .cornerRadius(8)
-                    
-                    // 5. Custom Display Overrides (Per-display custom overrides)
-                    VStack(alignment: .leading, spacing: 12) {
+                        let storageID = overrideStorageID(for: display)
+                        let isOverrideEnabled = displayOverridesEnabled[storageID] ?? false
+                        let resolutions = displayCustomResolutions[storageID] ?? []
+                        let inputError = resolutionInputError(for: display)
+
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Custom Display Overrides")
                                     .font(.subheadline)
                                     .fontWeight(.bold)
-                                Text("Add custom HiDPI scaling resolutions for this display.")
+                                Text("Configure HiDPI resolutions for this display model.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            
-                            let isOverrideEnabled = displayOverridesEnabled[display.displayID] ?? false
-                            Toggle("Enable Custom Override", isOn: Binding(
-                                get: { isOverrideEnabled },
-                                set: { val in handleToggleOverride(for: display, enabled: val) }
-                            ))
-                            .toggleStyle(.switch)
+
+                            Label(
+                                isOverrideEnabled ? "Active" : "Inactive",
+                                systemImage: isOverrideEnabled ? "checkmark.circle.fill" : "circle"
+                            )
+                            .font(.caption)
+                            .foregroundColor(isOverrideEnabled ? .green : .secondary)
                         }
-                        
-                        let isOverrideEnabled = displayOverridesEnabled[display.displayID] ?? false
-                        if isOverrideEnabled {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Warning: Modifies macOS configuration plists. Backups are saved.")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                
-                                Text("HiDPI override state for this display: \(HiDPIService.shared.isHiDPIOverrideEnabled(for: display) ? "Enabled" : "Disabled")")
+
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("Experimental: this writes a macOS system override. Displays with the same vendor and product IDs are affected together. The original file is backed up before the first write.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Configured Resolutions")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+
+                            if resolutions.isEmpty {
+                                Text("No custom resolutions configured. Add at least one before enabling the override.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-                                
-                                // List of added custom resolutions
-                                let resolutions = displayCustomResolutions[display.displayID] ?? []
-                                if !resolutions.isEmpty {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("Configured Resolutions:")
-                                            .font(.caption)
-                                            .fontWeight(.semibold)
-                                        
-                                        ForEach(Array(resolutions.enumerated()), id: \.offset) { index, res in
-                                            HStack {
-                                                Image(systemName: "arrow.up.left.and.down.right.and.arrow.up.right.and.down.left")
-                                                    .foregroundColor(.secondary)
-                                                    .font(.system(size: 10))
-                                                Text("\(res.width) x \(res.height)")
-                                                    .font(.system(.body, design: .monospaced))
-                                                Text("(HiDPI Scaling)")
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                                Spacer()
-                                                Button(action: {
-                                                    removeResolution(at: index, for: display)
-                                                }) {
-                                                    Image(systemName: "trash")
-                                                        .foregroundColor(.red)
-                                                }
-                                                .buttonStyle(.plain)
-                                            }
-                                            .padding(.vertical, 4)
-                                            .padding(.horizontal, 8)
-                                            .background(Color.black.opacity(0.1))
-                                            .cornerRadius(4)
-                                        }
-                                    }
-                                } else {
-                                    Text("No custom resolutions configured. Add one below.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .italic()
-                                }
-                                
-                                Divider()
+                                    .italic()
                                     .padding(.vertical, 4)
-                                
-                                // Form to add new resolution
-                                HStack(alignment: .bottom) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Logical Width:")
+                            } else {
+                                ForEach(Array(resolutions.enumerated()), id: \.offset) { index, resolution in
+                                    HStack {
+                                        Image(systemName: "arrow.up.left.and.down.right.and.arrow.up.right.and.down.left")
+                                            .foregroundColor(.secondary)
+                                            .font(.system(size: 10))
+                                        Text("\(resolution.width) × \(resolution.height)")
+                                            .font(.system(.body, design: .monospaced))
+                                        Text("HiDPI")
                                             .font(.caption)
-                                        TextField("e.g. 1920", value: $newResolutionWidth, formatter: NumberFormatter())
-                                            .textFieldStyle(.roundedBorder)
-                                            .frame(width: 80)
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Logical Height:")
-                                            .font(.caption)
-                                        TextField("e.g. 1080", value: $newResolutionHeight, formatter: NumberFormatter())
-                                            .textFieldStyle(.roundedBorder)
-                                            .frame(width: 80)
-                                    }
-                                    
-                                    Button(action: {
-                                        addResolution(width: newResolutionWidth, height: newResolutionHeight, for: display)
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "plus")
-                                            Text("Add")
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        Button {
+                                            removeResolution(at: index, for: display)
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .foregroundColor(.red)
                                         }
+                                        .buttonStyle(.plain)
+                                        .help("Remove \(resolution.width) × \(resolution.height)")
                                     }
-                                    .buttonStyle(.bordered)
-                                    
-                                    Spacer()
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 8)
+                                    .background(Color.black.opacity(0.1))
+                                    .cornerRadius(4)
                                 }
-                                
-                                Toggle("Hot reload on changes (Skip system reboot)", isOn: $hotReloadHiDPI)
-                                    .toggleStyle(.checkbox)
-                                    .padding(.top, 4)
-                                
-                                HStack {
-                                    Spacer()
-                                    Button("Apply Changes & Reload") {
-                                        setHiDPIOverride(enabled: true, for: display)
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                }
-                                .padding(.top, 4)
                             }
-                            .padding(.top, 8)
+                        }
+
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        HStack(alignment: .bottom) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Logical Width")
+                                    .font(.caption)
+                                TextField("e.g. 1920", value: $newResolutionWidth, formatter: NumberFormatter())
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 90)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Logical Height")
+                                    .font(.caption)
+                                TextField("e.g. 1080", value: $newResolutionHeight, formatter: NumberFormatter())
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 90)
+                            }
+
+                            Button {
+                                addResolution(width: newResolutionWidth, height: newResolutionHeight, for: display)
+                            } label: {
+                                Label("Add", systemImage: "plus")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(inputError != nil)
+
+                            Spacer()
+                        }
+
+                        if let inputError {
+                            Text(inputError)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text("Editing this list does not change macOS until you confirm Apply Override.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Toggle("Reload the display immediately after applying (experimental)", isOn: $hotReloadHiDPI)
+                            .toggleStyle(.checkbox)
+
+                        HStack {
+                            if isOverrideEnabled {
+                                Button("Disable Override…") {
+                                    confirmOverrideChange(enabled: false, for: display)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                            }
+
+                            Spacer()
+
+                            Button(isOverrideEnabled ? "Apply Changes…" : "Enable Override…") {
+                                confirmOverrideChange(enabled: true, for: display)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(resolutions.isEmpty)
                         }
                     }
                     .padding()
@@ -1102,7 +1049,7 @@ public struct SettingsWindowView: View {
                         Text("Reset & Clear Configuration:")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                        Text("This will remove all saved presets, dynamic HiDPI override files created by Mac Monitor, and restore original system backups.")
+                        Text("This will remove dynamic HiDPI override files created by Mac Monitor, reset app preferences, and restore original system backups.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
@@ -1116,14 +1063,14 @@ public struct SettingsWindowView: View {
                         .padding(.vertical, 4)
                     
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Complete Application Uninstallation:")
+                        Text("Remove Mac Monitor Data:")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                        Text("Cleans configurations, restores default plists, and deletes all Application Support, logs, caches, and preferences files associated with Mac Monitor.")
+                        Text("Restores system files, removes Mac Monitor data, saves a report, and quits. The app file remains and must be moved to Trash manually.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        Button("Uninstall Mac Monitor") {
+                        Button("Clean Data & Quit…") {
                             uninstallApp()
                         }
                         .buttonStyle(.borderedProminent)
