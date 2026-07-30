@@ -81,11 +81,7 @@ public final class DisplayPowerService {
     @discardableResult
     public func toggleDisplay(_ display: DisplayInfo) -> Bool {
         let isDisabled = display.isAppDisconnected || isDisplayDisabled(display.identifier)
-        if isDisabled {
-            return enableDisplay(displayID: display.displayID)
-        }
-
-        guard !display.isMain else {
+        if !isDisabled && display.isMain {
             DiagnosticsService.shared.log(
                 displayID: display.displayID,
                 operation: "toggleDisplay",
@@ -95,7 +91,7 @@ public final class DisplayPowerService {
             return false
         }
 
-        return disableDisplay(displayID: display.displayID)
+        return setDisplay(display, enabled: isDisabled)
     }
 
     @discardableResult
@@ -117,7 +113,7 @@ public final class DisplayPowerService {
             if shouldEnable {
                 guard isDisabled else { continue }
                 attemptedOperation = true
-                if !enableDisplay(displayID: display.displayID) {
+                if !setDisplay(display, enabled: true) {
                     allOperationsSucceeded = false
                 }
             } else {
@@ -127,13 +123,27 @@ public final class DisplayPowerService {
                     continue
                 }
                 attemptedOperation = true
-                if !disableDisplay(displayID: display.displayID) {
+                if !setDisplay(display, enabled: false) {
                     allOperationsSucceeded = false
                 }
             }
         }
 
         return attemptedOperation && allOperationsSucceeded
+    }
+
+    private func setDisplay(_ display: DisplayInfo, enabled: Bool) -> Bool {
+        let success = enabled
+            ? enableDisplay(displayID: display.displayID)
+            : disableDisplay(displayID: display.displayID)
+
+        if success {
+            DisplayNotificationService.shared.notifyPowerChanged(
+                for: display.name,
+                isEnabled: enabled
+            )
+        }
+        return success
     }
     
     @discardableResult
