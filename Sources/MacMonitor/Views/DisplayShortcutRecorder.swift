@@ -137,7 +137,7 @@ final class ShortcutRecorderButton: NSButton {
         if let knownKey = knownKeys[event.keyCode] {
             return knownKey
         }
-        let characters = event.charactersIgnoringModifiers?.uppercased() ?? ""
+        let characters = event.characters(byApplyingModifiers: [])?.uppercased() ?? ""
         return characters.isEmpty ? "Key \(event.keyCode)" : characters
     }
 }

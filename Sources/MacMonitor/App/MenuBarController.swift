@@ -106,14 +106,21 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         
         let grouped = RefreshRateService.shared.groupModesByResolution(
             DisplayModeService.shared.getAvailableModes(for: display.displayID)
-        )
+        ).filter(\.isHiDPI)
+        let customResolutions = CustomResolutionStore.load(for: display)
         
         // Limit to top 10 resolutions for brevity in menu bar
         for group in grouped.prefix(12) {
             let isCurrent = display.currentWidth == group.width && display.currentHeight == group.height && display.isHiDPI == group.isHiDPI
             
             let rateSuffix = group.refreshRates.contains(display.refreshRate) ? "" : " @ \(Int(group.refreshRates.first ?? 60.0))Hz"
-            let title = "\(group.width) x \(group.height)\(group.isHiDPI ? " (HiDPI)" : "")\(rateSuffix)"
+            let isCustom = CustomResolutionStore.contains(
+                width: group.width,
+                height: group.height,
+                rotation: display.rotation,
+                in: customResolutions
+            )
+            let title = "\(group.width) x \(group.height) (HiDPI)\(isCustom ? " [Custom]" : "")\(rateSuffix)"
             
             let item = NSMenuItem(title: title, action: #selector(changeResolutionAction(_:)), keyEquivalent: "")
             item.target = self

@@ -1,12 +1,6 @@
 import SwiftUI
 import CoreGraphics
 
-struct CustomResolution: Codable, Hashable, Identifiable {
-    var id: String { "\(width)x\(height)" }
-    let width: Int
-    let height: Int
-}
-
 // MARK: - Subcomponents to avoid compiler type-check timeout
 
 struct RotationControlView: View {
@@ -108,45 +102,15 @@ public struct SettingsWindowView: View {
     }
     
     private func overrideStorageID(for display: DisplayInfo) -> String {
-        if let uuid = display.identifier.uuid, !uuid.isEmpty {
-            return uuid
-        }
-
-        if let serialNumber = display.identifier.serialNumber, serialNumber != 0 {
-            return display.identifier.id
-        }
-
-        // Some displays do not expose a stable UUID or serial number. Keep their
-        // draft settings isolated for the current connection instead of sharing
-        // them through a potentially-colliding vendor/product key.
-        return "display-\(display.displayID)"
+        CustomResolutionStore.storageID(for: display)
     }
 
     private func saveResolutionsToUserDefaults(for display: DisplayInfo, resolutions: [CustomResolution]) {
-        let key = "MacMonitor.CustomResolutions.\(overrideStorageID(for: display))"
-        if let data = try? JSONEncoder().encode(resolutions) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        CustomResolutionStore.save(resolutions, for: display)
     }
     
     private func loadResolutionsFromUserDefaults(for display: DisplayInfo) -> [CustomResolution] {
-        let key = "MacMonitor.CustomResolutions.\(overrideStorageID(for: display))"
-        if let data = UserDefaults.standard.data(forKey: key),
-           let resolutions = try? JSONDecoder().decode([CustomResolution].self, from: data) {
-            return resolutions
-        }
-
-        // Migrate from old single key if available
-        let keyWidth = "MacMonitor.CustomWidth.\(display.identifier.id)"
-        let keyHeight = "MacMonitor.CustomHeight.\(display.identifier.id)"
-        let savedWidth = UserDefaults.standard.integer(forKey: keyWidth)
-        let savedHeight = UserDefaults.standard.integer(forKey: keyHeight)
-        
-        if savedWidth > 0 && savedHeight > 0 {
-            return [CustomResolution(width: savedWidth, height: savedHeight)]
-        }
-        
-        return []
+        CustomResolutionStore.load(for: display)
     }
     
     private func loadCustomResolutionsList(for display: DisplayInfo) {
@@ -666,7 +630,9 @@ public struct SettingsWindowView: View {
                         
                         let grouped = RefreshRateService.shared.groupModesByResolution(
                             DisplayModeService.shared.getAvailableModes(for: display.displayID)
-                        )
+                        ).filter(\.isHiDPI)
+                        let storageID = overrideStorageID(for: display)
+                        let customResolutions = displayCustomResolutions[storageID] ?? []
                         
                         VStack(spacing: 8) {
                             ForEach(grouped) { group in
@@ -680,6 +646,20 @@ public struct SettingsWindowView: View {
                                             .padding(.vertical, 2)
                                             .background(Color.blue.opacity(0.2))
                                             .foregroundColor(.blue)
+                                            .cornerRadius(4)
+                                    }
+                                    if CustomResolutionStore.contains(
+                                        width: group.width,
+                                        height: group.height,
+                                        rotation: display.rotation,
+                                        in: customResolutions
+                                    ) {
+                                        Text("Custom")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(Color.orange.opacity(0.2))
+                                            .foregroundColor(.orange)
                                             .cornerRadius(4)
                                     }
                                     Spacer()
