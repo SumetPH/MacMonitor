@@ -34,6 +34,7 @@ public struct SettingsWindowView: View {
     @ObservedObject private var manager = DisplayManager.shared
     @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var shortcutService = DisplayShortcutService.shared
+    @AppStorage(MenuBarController.hideMenuBarIconKey) private var hideMenuBarIcon = false
     
     @State private var activeTab = "diagnostics"
     @State private var hasInitializedTab = false
@@ -867,6 +868,13 @@ public struct SettingsWindowView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+
+                    Toggle("Hide Menu Bar Icon", isOn: $hideMenuBarIcon)
+                        .toggleStyle(.checkbox)
+
+                    Text("Opening Mac Monitor shows the icon and its menu temporarily.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()

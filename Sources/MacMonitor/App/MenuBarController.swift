@@ -4,12 +4,23 @@ import CoreGraphics
 
 @MainActor
 public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
+    public static let hideMenuBarIconKey = "MacMonitor.HideMenuBarIcon"
+
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
+    private var isPresentingTemporaryMenu = false
+    private var isUpdatingMenuBarIconVisibility = false
     
     public override init() {
         super.init()
         setupStatusItem()
+        updateMenuBarIconVisibility()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateMenuBarIconVisibility),
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
     }
     
     private func setupStatusItem() {
@@ -78,6 +89,47 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         let quitItem = NSMenuItem(title: "Quit Mac Monitor", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
+    }
+
+    public func menuDidClose(_ menu: NSMenu) {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateMenuBarIconVisibility()
+        }
+    }
+
+    public func showMenuTemporarilyIfNeeded() {
+        guard Self.shouldTemporarilyRevealMenuBarIcon(
+            hideMenuBarIcon: UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
+        ) else { return }
+
+        guard !isPresentingTemporaryMenu else { return }
+        isPresentingTemporaryMenu = true
+        updateMenuBarIconVisibility()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.statusItem?.button?.performClick(nil)
+            self.isPresentingTemporaryMenu = false
+            DispatchQueue.main.async { [weak self] in
+                self?.updateMenuBarIconVisibility()
+            }
+        }
+    }
+
+    static func shouldTemporarilyRevealMenuBarIcon(hideMenuBarIcon: Bool) -> Bool {
+        hideMenuBarIcon
+    }
+
+    @objc private func updateMenuBarIconVisibility() {
+        // AppKit posts defaults changes while setting visibility; ignore that re-entry.
+        guard !isUpdatingMenuBarIconVisibility, let statusItem else { return }
+        isUpdatingMenuBarIconVisibility = true
+        defer { isUpdatingMenuBarIconVisibility = false }
+
+        let isVisible = isPresentingTemporaryMenu
+            || !UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
+        if statusItem.isVisible != isVisible {
+            statusItem.isVisible = isVisible
+        }
     }
     
     private func populateDisplaySubmenu(_ menu: NSMenu, for display: DisplayInfo) {
@@ -206,14 +258,28 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
             window.title = "Mac Monitor Settings"
             window.contentView = NSHostingView(rootView: contentView)
             window.isReleasedWhenClosed = false
+            window.collectionBehavior = [.moveToActiveSpace]
             window.delegate = self
             self.settingsWindow = window
         }
         
         // Elevate activation policy so it supports Cmd+Tab and Dock
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.settingsWindow else { return }
+            if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) {
+                window.setFrameOrigin(NSPoint(
+                    x: screen.visibleFrame.midX - window.frame.width / 2,
+                    y: screen.visibleFrame.midY - window.frame.height / 2
+                ))
+            }
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        }
     }
     
     @objc private func changeResolutionAction(_ sender: NSMenuItem) {

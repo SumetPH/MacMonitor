@@ -5,6 +5,14 @@ import CoreGraphics
 
 @Suite("MacMonitor Core Logic Tests")
 struct MacMonitorTests {
+
+    @Test("Reveal the menu bar icon only when it is hidden")
+    func testTemporaryMenuBarIconReveal() async throws {
+        await MainActor.run {
+            #expect(MenuBarController.shouldTemporarilyRevealMenuBarIcon(hideMenuBarIcon: false) == false)
+            #expect(MenuBarController.shouldTemporarilyRevealMenuBarIcon(hideMenuBarIcon: true) == true)
+        }
+    }
     
     // MARK: - 1. HiDPI Detection Tests
     @Test("Test HiDPI detection with various resolutions")
