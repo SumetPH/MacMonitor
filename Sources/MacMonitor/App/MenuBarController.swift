@@ -244,7 +244,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
     
     // MARK: - Action Selectors
     
-    @objc private func openSettingsWindow() {
+    @objc public func openSettingsWindow() {
         if settingsWindow == nil {
             let contentView = SettingsWindowView()
             

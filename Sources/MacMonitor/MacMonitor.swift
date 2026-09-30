@@ -33,7 +33,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        menuBarController?.showMenuTemporarilyIfNeeded()
+        menuBarController?.openSettingsWindow()
         return true
     }
 }
