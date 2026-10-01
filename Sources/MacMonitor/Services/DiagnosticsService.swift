@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 public final class DiagnosticsService: @unchecked Sendable {
     public static let shared = DiagnosticsService()
@@ -45,10 +46,24 @@ public final class DiagnosticsService: @unchecked Sendable {
         }
     }
     
+    @MainActor
     public func generateReport(displays: [DisplayInfo]) -> String {
         var report = "=== Mac Monitor Diagnostics Report ===\n"
         report += "Generated: \(Date().description)\n"
         report += "macOS Version: \(ProcessInfo.processInfo.operatingSystemVersionString)\n\n"
+
+        report += "=== WINDOW WORK AREA ===\n"
+        report += "App Activation Policy: \(NSApp?.activationPolicy().rawValue.description ?? "Unavailable")\n"
+        let dockDefaults = UserDefaults(suiteName: "com.apple.dock")
+        report += "Dock Auto Hide: \(dockDefaults?.object(forKey: "autohide").map { String(describing: $0) } ?? "Unknown")\n"
+        report += "Dock Position: \(dockDefaults?.string(forKey: "orientation") ?? "Unknown")\n"
+        for screen in NSScreen.screens {
+            report += "Screen: \(screen.localizedName)\n"
+            report += "  Frame: \(screen.frame)\n"
+            report += "  Visible Frame: \(screen.visibleFrame)\n"
+            report += "  Reserved Bottom: \(screen.visibleFrame.minY - screen.frame.minY) points\n"
+        }
+        report += "\n"
         
         report += "=== CONNECTED DISPLAYS ===\n"
         for display in displays {

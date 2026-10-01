@@ -1,10 +1,25 @@
 import Testing
 import Foundation
 import CoreGraphics
+import AppKit
 @testable import MacMonitor
 
 @Suite("MacMonitor Core Logic Tests")
 struct MacMonitorTests {
+
+    @Test("Diagnostics include current screen work areas")
+    @MainActor
+    func testDiagnosticsWindowWorkArea() {
+        let report = DiagnosticsService.shared.generateReport(displays: [])
+        #expect(report.contains("=== WINDOW WORK AREA ==="))
+        #expect(report.contains("Dock Auto Hide:"))
+        #expect(report.contains("Dock Position:"))
+        for screen in NSScreen.screens {
+            #expect(report.contains("  Frame: \(screen.frame)\n"))
+            #expect(report.contains("  Visible Frame: \(screen.visibleFrame)\n"))
+            #expect(report.contains("  Reserved Bottom: \(screen.visibleFrame.minY - screen.frame.minY) points\n"))
+        }
+    }
 
     @Test("Reveal the menu bar icon only when it is hidden")
     func testTemporaryMenuBarIconReveal() async throws {
