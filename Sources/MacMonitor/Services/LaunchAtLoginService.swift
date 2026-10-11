@@ -1,5 +1,8 @@
 import Foundation
 import ServiceManagement
+import os
+
+private let logger = Logger(category: "LaunchAtLogin")
 
 @MainActor
 public final class LaunchAtLoginService: ObservableObject {
@@ -25,17 +28,17 @@ public final class LaunchAtLoginService: ObservableObject {
             do {
                 if enabled {
                     try service.register()
-                    print("[LaunchAtLogin] Successfully registered Launch at Login")
+                    logger.info("Successfully registered Launch at Login")
                 } else {
                     try service.unregister()
-                    print("[LaunchAtLogin] Successfully unregistered Launch at Login")
+                    logger.info("Successfully unregistered Launch at Login")
                 }
             } catch {
-                print("[LaunchAtLogin] Error changing launch at login status: \(error)")
+                logger.error("Error changing launch at login status: \(error, privacy: .public)")
             }
             refreshStatus()
         } else {
-            print("[LaunchAtLogin] Launch at Login is not supported on this macOS version")
+            logger.notice("Launch at Login is not supported on this macOS version")
         }
     }
 }

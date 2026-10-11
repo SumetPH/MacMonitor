@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-import AppKit
 
 public struct DisplayInfo: Codable, Identifiable, Hashable {
     public var id: String {

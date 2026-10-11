@@ -1,5 +1,8 @@
 import Foundation
 import UserNotifications
+import os
+
+private let logger = Logger(category: "DisplayNotificationService")
 
 @MainActor
 public final class DisplayNotificationService: NSObject, UNUserNotificationCenterDelegate {
@@ -12,7 +15,7 @@ public final class DisplayNotificationService: NSObject, UNUserNotificationCente
 
         guard Bundle.main.bundleURL.pathExtension == "app",
               Bundle.main.bundleIdentifier != nil else {
-            print("[DisplayNotificationService] Notifications are unavailable when running outside an app bundle.")
+            logger.info("Notifications are unavailable when running outside an app bundle.")
             return
         }
 
@@ -26,9 +29,9 @@ public final class DisplayNotificationService: NSObject, UNUserNotificationCente
 
         notificationCenter.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                print("[DisplayNotificationService] Notification authorization failed: \(error.localizedDescription)")
+                logger.error("Notification authorization failed: \(error.localizedDescription, privacy: .public)")
             } else if !granted {
-                print("[DisplayNotificationService] Notification permission was not granted.")
+                logger.notice("Notification permission was not granted.")
             }
         }
     }
@@ -48,7 +51,7 @@ public final class DisplayNotificationService: NSObject, UNUserNotificationCente
         )
         notificationCenter.add(request) { error in
             if let error {
-                print("[DisplayNotificationService] Failed to deliver notification: \(error.localizedDescription)")
+                logger.error("Failed to deliver notification: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

@@ -1,5 +1,8 @@
 import Foundation
 import CoreGraphics
+import os
+
+private let logger = Logger(category: "DisplayReconfigurationObserver")
 
 extension Notification.Name {
     public static let displayReconfiguration = Notification.Name("MacMonitorDisplayReconfigurationNotification")
@@ -41,9 +44,9 @@ public final class DisplayReconfigurationObserver {
         let result = CGDisplayRegisterReconfigurationCallback(reconfigurationCallback, nil)
         if result == .success {
             isListening = true
-            print("[DisplayReconfigurationObserver] Registered display reconfiguration callback successfully.")
+            logger.info("Registered display reconfiguration callback successfully.")
         } else {
-            print("[DisplayReconfigurationObserver] Failed to register display reconfiguration callback: \(result)")
+            logger.error("Failed to register display reconfiguration callback: \(result.rawValue, privacy: .public)")
         }
     }
     
@@ -53,9 +56,9 @@ public final class DisplayReconfigurationObserver {
         let result = CGDisplayRemoveReconfigurationCallback(reconfigurationCallback, nil)
         if result == .success {
             isListening = false
-            print("[DisplayReconfigurationObserver] Removed display reconfiguration callback successfully.")
+            logger.info("Removed display reconfiguration callback successfully.")
         } else {
-            print("[DisplayReconfigurationObserver] Failed to remove display reconfiguration callback: \(result)")
+            logger.error("Failed to remove display reconfiguration callback: \(result.rawValue, privacy: .public)")
         }
     }
 }

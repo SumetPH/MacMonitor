@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreGraphics
+import MacMonitorCore
 
 // MARK: - Subcomponents to avoid compiler type-check timeout
 
@@ -103,7 +104,7 @@ public struct SettingsWindowView: View {
     }
     
     private func overrideStorageID(for display: DisplayInfo) -> String {
-        CustomResolutionStore.storageID(for: display)
+        CustomResolution.storageID(for: display)
     }
 
     private func saveResolutionsToUserDefaults(for display: DisplayInfo, resolutions: [CustomResolution]) {
@@ -149,12 +150,11 @@ public struct SettingsWindowView: View {
     private func setHiDPIOverride(enabled: Bool, for display: DisplayInfo) {
         let storageID = overrideStorageID(for: display)
         let resolutions = displayCustomResolutions[storageID] ?? []
-        let customTupleArray = resolutions.map { (width: $0.width, height: $0.height) }
         
         HiDPIService.shared.setHiDPIOverrideEnabled(
             enabled,
             for: display,
-            customResolutions: customTupleArray,
+            customResolutions: resolutions,
             hotReload: hotReloadHiDPI
         ) { result in
             switch result {
@@ -202,7 +202,7 @@ public struct SettingsWindowView: View {
     }
     
     private func addResolution(width: Int, height: Int, for display: DisplayInfo) {
-        guard (320...8192).contains(width), (200...8192).contains(height) else { return }
+        guard CustomResolution.isValid(width: width, height: height) else { return }
         let storageID = overrideStorageID(for: display)
         var list = displayCustomResolutions[storageID] ?? []
         if !list.contains(where: { $0.width == width && $0.height == height }) {
@@ -222,8 +222,7 @@ public struct SettingsWindowView: View {
     }
 
     private func resolutionInputError(for display: DisplayInfo) -> String? {
-        guard (320...8192).contains(newResolutionWidth),
-              (200...8192).contains(newResolutionHeight) else {
+        guard CustomResolution.isValid(width: newResolutionWidth, height: newResolutionHeight) else {
             return "Width must be 320–8192 and height must be 200–8192."
         }
 
@@ -629,7 +628,7 @@ public struct SettingsWindowView: View {
                             .font(.subheadline)
                             .fontWeight(.bold)
                         
-                        let grouped = RefreshRateService.shared.groupModesByResolution(
+                        let grouped = DisplayModeGrouping.groupModesByResolution(
                             DisplayModeService.shared.getAvailableModes(for: display.displayID)
                         ).filter(\.isHiDPI)
                         let storageID = overrideStorageID(for: display)
@@ -649,7 +648,7 @@ public struct SettingsWindowView: View {
                                             .foregroundColor(.blue)
                                             .cornerRadius(4)
                                     }
-                                    if CustomResolutionStore.contains(
+                                    if CustomResolution.contains(
                                         width: group.width,
                                         height: group.height,
                                         rotation: display.rotation,

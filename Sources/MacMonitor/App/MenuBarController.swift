@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 import CoreGraphics
+import MacMonitorCore
+import os
+
+private let logger = Logger(category: "MenuBarController")
 
 @MainActor
 public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
@@ -98,7 +102,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
     }
 
     public func showMenuTemporarilyIfNeeded() {
-        guard Self.shouldTemporarilyRevealMenuBarIcon(
+        guard MenuBarIconVisibility.shouldTemporarilyReveal(
             hideMenuBarIcon: UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
         ) else { return }
 
@@ -115,18 +119,16 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         }
     }
 
-    static func shouldTemporarilyRevealMenuBarIcon(hideMenuBarIcon: Bool) -> Bool {
-        hideMenuBarIcon
-    }
-
     @objc private func updateMenuBarIconVisibility() {
         // AppKit posts defaults changes while setting visibility; ignore that re-entry.
         guard !isUpdatingMenuBarIconVisibility, let statusItem else { return }
         isUpdatingMenuBarIconVisibility = true
         defer { isUpdatingMenuBarIconVisibility = false }
 
-        let isVisible = isPresentingTemporaryMenu
-            || !UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
+        let isVisible = MenuBarIconVisibility.isVisible(
+            isPresentingTemporaryMenu: isPresentingTemporaryMenu,
+            hideMenuBarIcon: UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
+        )
         if statusItem.isVisible != isVisible {
             statusItem.isVisible = isVisible
         }
@@ -156,7 +158,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         let resItem = NSMenuItem(title: "Resolutions", action: nil, keyEquivalent: "")
         let resSubmenu = NSMenu()
         
-        let grouped = RefreshRateService.shared.groupModesByResolution(
+        let grouped = DisplayModeGrouping.groupModesByResolution(
             DisplayModeService.shared.getAvailableModes(for: display.displayID)
         ).filter(\.isHiDPI)
         let customResolutions = CustomResolutionStore.load(for: display)
@@ -166,7 +168,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
             let isCurrent = display.currentWidth == group.width && display.currentHeight == group.height && display.isHiDPI == group.isHiDPI
             
             let rateSuffix = group.refreshRates.contains(display.refreshRate) ? "" : " @ \(Int(group.refreshRates.first ?? 60.0))Hz"
-            let isCustom = CustomResolutionStore.contains(
+            let isCustom = CustomResolution.contains(
                 width: group.width,
                 height: group.height,
                 rotation: display.rotation,
@@ -199,7 +201,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
         
         // Get rates for current resolution
         let modes = DisplayModeService.shared.getAvailableModes(for: display.displayID)
-        let currentGroup = RefreshRateService.shared.groupModesByResolution(modes).first {
+        let currentGroup = DisplayModeGrouping.groupModesByResolution(modes).first {
             $0.width == display.currentWidth && $0.height == display.currentHeight && $0.isHiDPI == display.isHiDPI
         }
         
@@ -335,7 +337,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate
             alert.informativeText = "Saved diagnostics report file at:\n\(fileURL.path)"
             alert.runModal()
         } catch {
-            print("[MenuBarController] Failed to export report: \(error.localizedDescription)")
+            logger.error("Failed to export report: \(error.localizedDescription, privacy: .public)")
         }
     }
     

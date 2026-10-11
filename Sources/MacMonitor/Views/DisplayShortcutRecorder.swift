@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MacMonitorCore
 
 struct DisplayShortcutRecorder: NSViewRepresentable {
     let shortcut: DisplayKeyboardShortcut?

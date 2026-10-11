@@ -1,12 +1,13 @@
 import Foundation
 import CoreGraphics
+import MacMonitorCore
 
 @MainActor
 public final class HiDPIService {
     public static let shared = HiDPIService()
     
     private let fileManager = FileManager.default
-    private let overridesPath = "/Library/Displays/Contents/Resources/Overrides"
+    private let overridesPath = DisplayOverride.overridesPath
 
     private var tempDirectoryURL: URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -14,38 +15,6 @@ public final class HiDPIService {
     }
     
     private init() {}
-    
-    public func isModeHiDPI(width: Int, height: Int, pixelWidth: Int, pixelHeight: Int) -> Bool {
-        return pixelWidth > width || pixelHeight > height
-    }
-    
-    public func getVendorHex(_ vendorID: UInt32) -> String {
-        return String(format: "%x", vendorID)
-    }
-    
-    public func getProductHex(_ productID: UInt32) -> String {
-        return String(format: "%x", productID)
-    }
-    
-    public func generateScaleResolutionData(width: Int, height: Int) -> Data {
-        var wBig = UInt32(width).bigEndian
-        var hBig = UInt32(height).bigEndian
-        
-        var data = Data()
-        withUnsafeBytes(of: &wBig) { data.append(contentsOf: $0) }
-        withUnsafeBytes(of: &hBig) { data.append(contentsOf: $0) }
-        
-        // Append 4 bytes of flags (usually 0x00000001 or similar, let's keep it simple with 8 bytes or 16 bytes.
-        // Some systems expect 16 bytes: [Width][Height][Flags][Scale]
-        // Adding 0x00000001 flag
-        var flags: UInt32 = UInt32(1).bigEndian
-        withUnsafeBytes(of: &flags) { data.append(contentsOf: $0) }
-        
-        var zero: UInt32 = 0
-        withUnsafeBytes(of: &zero) { data.append(contentsOf: $0) }
-        
-        return data
-    }
     
     public func checkOverridesWriteAccess() -> Bool {
         return fileManager.isWritableFile(atPath: overridesPath)
@@ -63,17 +32,13 @@ public final class HiDPIService {
     }
     
     public func overrideFileURL(vendorID: UInt32, productID: UInt32) -> URL {
-        let vendorHex = getVendorHex(vendorID)
-        let productHex = getProductHex(productID)
-        return URL(fileURLWithPath: overridesPath)
-            .appendingPathComponent("DisplayVendorID-\(vendorHex)")
-            .appendingPathComponent("DisplayProductID-\(productHex)")
+        DisplayOverride.fileURL(vendorID: vendorID, productID: productID)
     }
     
     public func setHiDPIOverrideEnabled(
         _ enabled: Bool,
         for display: DisplayInfo,
-        customResolutions: [(width: Int, height: Int)],
+        customResolutions: [CustomResolution],
         hotReload: Bool,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
@@ -113,11 +78,11 @@ public final class HiDPIService {
     public func createOverrideFile(
         vendorID: UInt32,
         productID: UInt32,
-        customResolutions: [(width: Int, height: Int)],
+        customResolutions: [CustomResolution],
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         guard !customResolutions.isEmpty,
-              customResolutions.allSatisfy({ (320...8192).contains($0.width) && (200...8192).contains($0.height) }) else {
+              customResolutions.allSatisfy(\.isValid) else {
             completion(.failure(NSError(
                 domain: "HiDPIService",
                 code: 422,
@@ -126,35 +91,17 @@ public final class HiDPIService {
             return
         }
 
-        let vendorHex = getVendorHex(vendorID)
-        let productHex = getProductHex(productID)
-        
-        let folderName = "DisplayVendorID-\(vendorHex)"
-        let fileName = "DisplayProductID-\(productHex)"
-        
-        let folderURL = URL(fileURLWithPath: overridesPath).appendingPathComponent(folderName)
-        let fileURL = folderURL.appendingPathComponent(fileName)
-        
-        // Generate scale-resolutions array
-        var scaleResolutionsData: [Data] = []
-        for res in customResolutions {
-            // HiDPI requires double pixel resolution
-            let data = generateScaleResolutionData(width: res.width * 2, height: res.height * 2)
-            scaleResolutionsData.append(data)
-        }
-        
-        // Create Plist dictionary
-        let plistDict: [String: Any] = [
-            "DisplayProductID": Int(productID),
-            "DisplayVendorID": Int(vendorID),
-            "scale-resolutions": scaleResolutionsData
-        ]
+        let folderName = DisplayOverride.folderName(vendorID: vendorID)
+        let fileName = DisplayOverride.fileName(productID: productID)
+        let fileURL = DisplayOverride.fileURL(vendorID: vendorID, productID: productID)
+        let folderURL = fileURL.deletingLastPathComponent()
         
         do {
-            let plistData = try PropertyListSerialization.data(
-                fromPropertyList: plistDict,
-                format: .xml,
-                options: 0
+            // HiDPI requires double pixel resolution; DisplayOverride doubles each entry.
+            let plistData = try DisplayOverride.plistData(
+                vendorID: vendorID,
+                productID: productID,
+                resolutions: customResolutions
             )
             
             // We need root/admin permission to write to /Library/Displays/...

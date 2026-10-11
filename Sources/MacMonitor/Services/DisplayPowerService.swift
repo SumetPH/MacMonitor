@@ -1,5 +1,9 @@
 import Foundation
 import CoreGraphics
+import MacMonitorCore
+import os
+
+private let logger = Logger(category: "DisplayPowerService")
 
 @MainActor
 public final class DisplayPowerService {
@@ -7,10 +11,7 @@ public final class DisplayPowerService {
     
     private let disabledDisplaySnapshotsKey = "MacMonitor.disabledDisplaySnapshots"
     
-    // Track displays by stable identifier because macOS can re-enumerate
-    // display IDs after a topology change.
-    private var disabledDisplays: Set<DisplayIdentifier> = []
-    private var disabledDisplaySnapshots: [String: DisplayInfo] = [:]
+    private var tracker = DisabledDisplayTracker()
     
     private init() {
         loadDisabledDisplaySnapshots()
@@ -25,56 +26,21 @@ public final class DisplayPowerService {
     }
     
     func isDisplayDisabled(_ identifier: DisplayIdentifier) -> Bool {
-        return disabledDisplays.contains(identifier)
-    }
-    
-    func resetTrackedStateForTesting() {
-        disabledDisplays.removeAll()
-        disabledDisplaySnapshots.removeAll()
-        persistDisabledDisplaySnapshots()
-    }
-    
-    func markDisabledForTesting(_ identifier: DisplayIdentifier) {
-        disabledDisplays.insert(identifier)
-    }
-    
-    func clearDisabledForTesting(_ identifier: DisplayIdentifier) {
-        disabledDisplays.remove(identifier)
-        disabledDisplaySnapshots.removeValue(forKey: identifier.id)
-        persistDisabledDisplaySnapshots()
+        tracker.isDisabled(identifier)
     }
     
     public func syncWithActiveDisplays(_ activeDisplays: [DisplayInfo]) {
-        let activeIDs = Set(activeDisplays.map(\.identifier.id))
-        var changed = false
-        
-        let initialCount = disabledDisplays.count
-        disabledDisplays = disabledDisplays.filter { !activeIDs.contains($0.id) }
-        if disabledDisplays.count != initialCount {
-            changed = true
-        }
-        
-        for activeID in activeIDs {
-            if disabledDisplaySnapshots.removeValue(forKey: activeID) != nil {
-                changed = true
-            }
-        }
-        
-        if changed {
+        if tracker.sync(withActive: activeDisplays) {
             persistDisabledDisplaySnapshots()
         }
     }
     
     public func disabledDisplaySnapshots(excluding activeDisplays: [DisplayInfo]) -> [DisplayInfo] {
-        let activeIDs = Set(activeDisplays.map(\.identifier.id))
-        return disabledDisplaySnapshots.values
-            .filter { !activeIDs.contains($0.identifier.id) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        tracker.snapshots(excluding: activeDisplays)
     }
     
     public func rememberDisplaySnapshot(_ display: DisplayInfo) {
-        disabledDisplays.insert(display.identifier)
-        disabledDisplaySnapshots[display.identifier.id] = display.disconnectedSnapshot()
+        tracker.remember(display)
         persistDisabledDisplaySnapshots()
     }
 
@@ -148,7 +114,7 @@ public final class DisplayPowerService {
     
     @discardableResult
     public func resetDisplayConnections() -> Bool {
-        let snapshotDisplayIDs = disabledDisplaySnapshots.values.map(\.displayID)
+        let snapshotDisplayIDs = tracker.snapshotList.map(\.displayID)
         let currentDisplayIDs = DisplayManager.shared.displays.map(\.displayID)
         let fallbackDisplayIDs = Array(CGDirectDisplayID(1)...CGDirectDisplayID(32))
         let displayIDs = Array(Set(snapshotDisplayIDs + currentDisplayIDs + fallbackDisplayIDs)).sorted()
@@ -161,8 +127,7 @@ public final class DisplayPowerService {
         }
         
         if didReconnect {
-            disabledDisplays.removeAll()
-            disabledDisplaySnapshots.removeAll()
+            tracker.removeAll()
             persistDisabledDisplaySnapshots()
         }
         
@@ -211,7 +176,7 @@ public final class DisplayPowerService {
             return false
         }
         
-        disabledDisplays.insert(displayIdentifier)
+        tracker.markDisabled(displayIdentifier)
         
         let details = "Soft Disconnect: \(softDisconnectSuccess ? "Success" : "Failed"), DDC Power: \(ddcPowerSuccess ? "Success" : "Skipped/Failed"), Brightness: Skipped, Mirroring: Skipped"
         
@@ -231,8 +196,7 @@ public final class DisplayPowerService {
         let ddcPowerSuccess = softConnectSuccess ? false : DDCService.shared.setPower(displayID: displayID, on: true)
         
         if softConnectSuccess || ddcPowerSuccess {
-            disabledDisplays.remove(displayIdentifier)
-            disabledDisplaySnapshots.removeValue(forKey: displayIdentifier.id)
+            tracker.clear(displayIdentifier)
             persistDisabledDisplaySnapshots()
             
             let details = "Soft Connect: \(softConnectSuccess ? "Success" : "Failed"), DDC Power: \(ddcPowerSuccess ? "Success" : "Skipped/Failed"), Brightness: Skipped, Mirroring Removed: Skipped"
@@ -248,11 +212,10 @@ public final class DisplayPowerService {
         
         // Fallback: Sweep all possible display IDs to reconnect.
         // This is necessary if the transient display ID has changed after a topology update or app restart.
-        print("[DisplayPowerService] Direct enable failed for DisplayID \(displayID). Attempting fallback sweep...")
+        logger.notice("Direct enable failed for DisplayID \(displayID, privacy: .public). Attempting fallback sweep...")
         let sweepSuccess = resetDisplayConnections()
         if sweepSuccess {
-            disabledDisplays.remove(displayIdentifier)
-            disabledDisplaySnapshots.removeValue(forKey: displayIdentifier.id)
+            tracker.clear(displayIdentifier)
             persistDisabledDisplaySnapshots()
             
             DiagnosticsService.shared.log(
@@ -279,12 +242,11 @@ public final class DisplayPowerService {
             return
         }
         
-        disabledDisplaySnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.identifier.id, $0) })
-        disabledDisplays = Set(snapshots.map(\.identifier))
+        tracker = DisabledDisplayTracker(snapshots: snapshots)
     }
     
     private func persistDisabledDisplaySnapshots() {
-        let snapshots = Array(disabledDisplaySnapshots.values)
+        let snapshots = tracker.snapshotList
         if snapshots.isEmpty {
             UserDefaults.standard.removeObject(forKey: disabledDisplaySnapshotsKey)
             return

@@ -1,8 +1,6 @@
 import Foundation
 import CoreGraphics
-
-@_silgen_name("CGDisplayCreateUUIDFromDisplayID")
-private func CGDisplayCreateUUIDFromDisplayID(_ display: CGDirectDisplayID) -> CFUUID?
+import ColorSync // CGDisplayCreateUUIDFromDisplayID
 
 public struct DisplayIdentifier: Codable, Hashable, Identifiable {
     public var id: String {
@@ -30,7 +28,7 @@ public struct DisplayIdentifier: Codable, Hashable, Identifiable {
     public init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
         
-        if let uuidRef = CGDisplayCreateUUIDFromDisplayID(displayID) {
+        if let uuidRef = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() {
             let uuidObj = CFUUIDCreateString(nil, uuidRef)
             self.uuid = (uuidObj as String?)
         } else {

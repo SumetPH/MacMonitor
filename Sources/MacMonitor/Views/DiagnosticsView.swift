@@ -1,4 +1,8 @@
 import SwiftUI
+import os
+import MacMonitorCore
+
+private let logger = Logger(category: "DiagnosticsView")
 
 public struct DiagnosticsView: View {
     @ObservedObject private var manager = DisplayManager.shared
@@ -154,7 +158,7 @@ public struct DiagnosticsView: View {
             exportedFilePath = fileURL.path
             showingExportAlert = true
         } catch {
-            print("[DiagnosticsView] Failed to export: \(error.localizedDescription)")
+            logger.error("Failed to export: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

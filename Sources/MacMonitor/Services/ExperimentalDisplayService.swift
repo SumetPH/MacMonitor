@@ -1,5 +1,8 @@
 import Foundation
 import CoreGraphics
+import os
+
+private let logger = Logger(category: "ExperimentalDisplayService")
 
 @MainActor
 public final class ExperimentalDisplayService {
@@ -26,7 +29,7 @@ public final class ExperimentalDisplayService {
     @discardableResult
     public func createVirtualDisplay(name: String, width: Int, height: Int, isHiDPI: Bool) -> Bool {
         guard isExperimentalModeEnabled else {
-            print("[ExperimentalDisplayService] Cannot create virtual display: Experimental mode is disabled.")
+            logger.notice("Cannot create virtual display: Experimental mode is disabled.")
             return false
         }
         

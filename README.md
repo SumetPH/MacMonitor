@@ -101,17 +101,24 @@ MacMonitor/
 │   └── init-prompt.md
 ├── Scripts/
 │   ├── build-app.sh
+│   ├── check-startup.sh
 │   └── dev-app.sh
-├── Sources/MacMonitor/
-│   ├── App/
-│   │   └── MenuBarController.swift
-│   ├── Models/
-│   ├── Services/
-│   ├── Views/
-│   └── MacMonitor.swift
+├── Sources/
+│   ├── MacMonitor/          # executable: AppKit/SwiftUI + system side effects
+│   │   ├── App/             # AppDelegate (@main), MenuBarController
+│   │   ├── Services/        # display config, DDC/CI, overrides, privileged ops, logging
+│   │   └── Views/           # SwiftUI settings/diagnostics views
+│   └── MacMonitorCore/      # pure logic: models, manifest, mode grouping, DDC packets, report text
 ├── Tests/
+│   └── MacMonitorCoreTests/ # Swift Testing, tests MacMonitorCore only
 ├── Package.swift
 └── README.md
+```
+
+Logs use `os.Logger` with subsystem `dev.sumetph.MacMonitor`:
+
+```bash
+log stream --predicate 'subsystem == "dev.sumetph.MacMonitor"'
 ```
 
 ## Security Notes ก่อนอัป GitHub

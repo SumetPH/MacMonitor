@@ -1,5 +1,8 @@
 import Foundation
 import CoreGraphics
+import os
+
+private let logger = Logger(category: "DisplayModeService")
 
 @MainActor
 public final class DisplayModeService {
@@ -106,7 +109,7 @@ public final class DisplayModeService {
         rollbackTimer?.invalidate()
         rollbackTimer = nil
         rollbackDisplayID = nil
-        print("[DisplayModeService] User confirmed resolution change. Rollback cancelled.")
+        logger.info("User confirmed resolution change. Rollback cancelled.")
     }
     
     public func revertModeChange() {
@@ -124,7 +127,7 @@ public final class DisplayModeService {
         rollbackTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                print("[DisplayModeService] Rollback timer expired without confirmation. Reverting resolution...")
+                logger.notice("Rollback timer expired without confirmation. Reverting resolution...")
                 self.performRollback(for: displayID)
                 onRollback?()
             }
@@ -133,7 +136,7 @@ public final class DisplayModeService {
     
     private func performRollback(for displayID: CGDirectDisplayID) {
         guard let originalMode = originalModes[displayID] else {
-            print("[DisplayModeService] Error: No backup mode found to rollback for display \(displayID).")
+            logger.error("No backup mode found to rollback for display \(displayID, privacy: .public).")
             return
         }
         

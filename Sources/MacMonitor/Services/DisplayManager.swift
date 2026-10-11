@@ -2,6 +2,10 @@ import Foundation
 import CoreGraphics
 import AppKit
 import IOKit
+import os
+import MacMonitorCore
+
+private let logger = Logger(category: "DisplayManager")
 
 @MainActor
 public final class DisplayManager: ObservableObject {
@@ -27,7 +31,7 @@ public final class DisplayManager: ObservableObject {
     }
     
     @objc private func handleReconfiguration() {
-        print("[DisplayManager] Received display reconfiguration notification. Refreshing...")
+        logger.debug("Received display reconfiguration notification. Refreshing...")
         refreshDisplays()
     }
     
@@ -161,14 +165,14 @@ public final class DisplayManager: ObservableObject {
     
     public func changeMode(displayID: CGDirectDisplayID, width: Int, height: Int, refreshRate: Double, isHiDPI: Bool) {
         let modes = DisplayModeService.shared.getAvailableModes(for: displayID)
-        guard let mode = RefreshRateService.shared.findMode(
+        guard let mode = DisplayModeGrouping.findMode(
             in: modes,
             width: width,
             height: height,
             refreshRate: refreshRate,
             isHiDPI: isHiDPI
         ) else {
-            print("[DisplayManager] Failed to find matching mode.")
+            logger.error("Failed to find matching mode.")
             return
         }
         

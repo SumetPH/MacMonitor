@@ -1,4 +1,7 @@
 import AppKit
+import os
+
+private let logger = Logger(category: "AppDelegate")
 
 @main
 @MainActor
@@ -29,7 +32,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController = MenuBarController()
         menuBarController?.showMenuTemporarilyIfNeeded()
         
-        print("[AppDelegate] Mac Monitor started successfully.")
+        logger.info("Mac Monitor started successfully.")
+        print("[AppDelegate] Mac Monitor started successfully.") // macos-app:allow-print Scripts/check-startup.sh greps stdout for this line
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -1,16 +1,15 @@
 import AppKit
 import Carbon
 import CoreGraphics
+import MacMonitorCore
 
-public struct DisplayKeyboardShortcut: Codable, Hashable {
-    public let keyCode: UInt32
-    public let modifiers: UInt
-    public let keyLabel: String
-
+extension DisplayKeyboardShortcut {
     public init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags, keyLabel: String) {
-        self.keyCode = keyCode
-        self.modifiers = modifiers.intersection(.deviceIndependentFlagsMask).rawValue
-        self.keyLabel = keyLabel
+        self.init(
+            keyCode: keyCode,
+            modifiers: modifiers.intersection(.deviceIndependentFlagsMask).rawValue,
+            keyLabel: keyLabel
+        )
     }
 
     public var modifierFlags: NSEvent.ModifierFlags {
@@ -27,11 +26,6 @@ public struct DisplayKeyboardShortcut: Codable, Hashable {
         if flags.contains(.command) { text += "⌘" }
         return text + keyLabel
     }
-}
-
-public enum DisplayShortcutAction {
-    case multiDisplayPower
-    case reconnectAll
 }
 
 @MainActor

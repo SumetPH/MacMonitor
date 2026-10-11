@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import IOKit
+import MacMonitorCore
 
 // Private DisplayServices functions loaded dynamically at runtime to prevent linker errors
 private func DisplayServicesGetLinearBrightness(_ displayID: CGDirectDisplayID, _ brightness: UnsafeMutablePointer<Float>) -> Int32 {
@@ -84,12 +85,6 @@ private func IOI2CSendRequest(_ interface: io_object_t, _ options: IOOptionBits,
 public final class DDCService {
     public static let shared = DDCService()
     
-    // Virtual control registers (VCP codes)
-    private let VCP_BRIGHTNESS: UInt8 = 0x10
-    private let VCP_CONTRAST: UInt8 = 0x12
-    private let VCP_POWER: UInt8 = 0xD6
-    private let VCP_INPUT: UInt8 = 0x60
-    
     private init() {}
     
     private func getDisplayIOServicePort(displayID: CGDirectDisplayID) -> io_service_t {
@@ -133,7 +128,7 @@ public final class DDCService {
             return nil
         }
         
-        return readVCPFeature(displayID: displayID, vcpCode: VCP_BRIGHTNESS)
+        return readVCPFeature(displayID: displayID, vcpCode: DDCPacket.vcpBrightness)
     }
     
     @discardableResult
@@ -152,8 +147,8 @@ public final class DDCService {
             return success
         }
         
-        let ddcValue = UInt8(clampedValue * 100)
-        let success = writeVCPFeature(displayID: displayID, vcpCode: VCP_BRIGHTNESS, value: ddcValue)
+        let ddcValue = DDCPacket.percentValue(clampedValue)
+        let success = writeVCPFeature(displayID: displayID, vcpCode: DDCPacket.vcpBrightness, value: ddcValue)
         DiagnosticsService.shared.log(
             displayID: displayID,
             operation: "setBrightnessDDC",
@@ -167,14 +162,13 @@ public final class DDCService {
         if isAppleOrBuiltIn(displayID: displayID) {
             return nil
         }
-        return readVCPFeature(displayID: displayID, vcpCode: VCP_CONTRAST)
+        return readVCPFeature(displayID: displayID, vcpCode: DDCPacket.vcpContrast)
     }
     
     @discardableResult
     public func writeContrast(displayID: CGDirectDisplayID, value: Double) -> Bool {
-        let clampedValue = max(0.0, min(1.0, value))
-        let ddcValue = UInt8(clampedValue * 100)
-        let success = writeVCPFeature(displayID: displayID, vcpCode: VCP_CONTRAST, value: ddcValue)
+        let ddcValue = DDCPacket.percentValue(value)
+        let success = writeVCPFeature(displayID: displayID, vcpCode: DDCPacket.vcpContrast, value: ddcValue)
         DiagnosticsService.shared.log(
             displayID: displayID,
             operation: "setContrastDDC",
@@ -190,7 +184,7 @@ public final class DDCService {
             return false
         }
         let value: UInt8 = on ? 1 : 4
-        let success = writeVCPFeature(displayID: displayID, vcpCode: VCP_POWER, value: value)
+        let success = writeVCPFeature(displayID: displayID, vcpCode: DDCPacket.vcpPower, value: value)
         DiagnosticsService.shared.log(
             displayID: displayID,
             operation: "setPowerDDC",
@@ -212,19 +206,7 @@ public final class DDCService {
         
         defer { IOObjectRelease(interface) }
         
-        var payload = [UInt8](repeating: 0, count: 7)
-        payload[0] = 0x51
-        payload[1] = 0x84
-        payload[2] = 0x03
-        payload[3] = vcpCode
-        payload[4] = 0x00
-        payload[5] = value
-        
-        var checksum: UInt8 = 0x6E
-        for byte in payload[0...5] {
-            checksum ^= byte
-        }
-        payload[6] = checksum
+        var payload = DDCPacket.setVCPFeature(vcpCode, value: value)
         
         var request = IOI2CRequest()
         request.commFlags = 0
@@ -256,17 +238,7 @@ public final class DDCService {
         
         defer { IOObjectRelease(interface) }
         
-        var writePayload = [UInt8](repeating: 0, count: 5)
-        writePayload[0] = 0x51
-        writePayload[1] = 0x82
-        writePayload[2] = 0x01
-        writePayload[3] = vcpCode
-        
-        var checksum: UInt8 = 0x6E
-        for byte in writePayload[0...3] {
-            checksum ^= byte
-        }
-        writePayload[4] = checksum
+        var writePayload = DDCPacket.getVCPFeature(vcpCode)
         
         var request = IOI2CRequest()
         request.commFlags = 0
@@ -314,12 +286,6 @@ public final class DDCService {
         
         guard readSuccess else { return nil }
         
-        guard readPayload[2] == 0x02 && readPayload[4] == vcpCode else { return nil }
-        
-        let currentValue = (UInt16(readPayload[7]) << 8) | UInt16(readPayload[8])
-        let maxValue = (UInt16(readPayload[5]) << 8) | UInt16(readPayload[6])
-        
-        guard maxValue > 0 else { return nil }
-        return Double(currentValue) / Double(maxValue)
+        return DDCPacket.parseVCPReply(readPayload, vcpCode: vcpCode)
     }
 }

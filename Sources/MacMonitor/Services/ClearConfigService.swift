@@ -1,4 +1,5 @@
 import Foundation
+import MacMonitorCore
 
 public struct ClearConfigError: LocalizedError {
     public let issues: [String]
@@ -13,8 +14,6 @@ public final class ClearConfigService {
     public static let shared = ClearConfigService()
 
     private let fileManager = FileManager.default
-    private let overridesPath = "/Library/Displays/Contents/Resources/Overrides"
-
     private var tempDirectoryURL: URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MacMonitor/temp")
@@ -23,20 +22,7 @@ public final class ClearConfigService {
     private init() {}
 
     public func cleanupPreview() -> [String] {
-        let manifest = ConfigManifestStore.shared.getManifest()
-        let managedPaths = Set(manifest.createdFiles).union(manifest.backups.keys).sorted()
-        var items = managedPaths.map { path in
-            guard isAllowedManagedPath(path) else {
-                return "Blocked unsafe manifest path: \(path)"
-            }
-            if manifest.backups[path] != nil {
-                return "Restore original file: \(path)"
-            }
-            return "Remove Mac Monitor file: \(path)"
-        }
-        items.append("Reset launch-at-login, shortcuts, and app preferences")
-        items.append("Clear Mac Monitor recovery manifest and temporary files")
-        return items
+        ConfigManifestStore.shared.getManifest().cleanupPreview()
     }
 
     public func performClearConfig(
@@ -44,12 +30,12 @@ public final class ClearConfigService {
         completion: @escaping (Result<[String], Error>) -> Void
     ) {
         let manifest = ConfigManifestStore.shared.getManifest()
-        let managedPaths = Set(manifest.createdFiles).union(manifest.backups.keys).sorted()
+        let managedPaths = manifest.managedPaths
         var completedItems: [String] = []
         var issues: [String] = []
 
         for path in managedPaths {
-            guard isAllowedManagedPath(path) else {
+            guard DisplayOverride.isManagedOverridePath(path) else {
                 issues.append("Blocked unsafe manifest path: \(path)")
                 continue
             }
@@ -149,8 +135,7 @@ public final class ClearConfigService {
     private func cleanupEmptyOverrideDirectory(containing path: String) {
         let fileURL = URL(fileURLWithPath: path)
         let directoryURL = fileURL.deletingLastPathComponent()
-        guard directoryURL.path.hasPrefix(overridesPath + "/"),
-              directoryURL.lastPathComponent.hasPrefix("DisplayVendorID-") else {
+        guard DisplayOverride.isVendorDirectory(directoryURL) else {
             return
         }
 
@@ -164,14 +149,6 @@ public final class ClearConfigService {
         } catch {
             _ = PrivilegedFileManager.shared.removeDirectoryIfEmpty(atPath: directoryURL.path)
         }
-    }
-
-    private func isAllowedManagedPath(_ path: String) -> Bool {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        let directoryURL = url.deletingLastPathComponent()
-        return directoryURL.deletingLastPathComponent().path == overridesPath &&
-               directoryURL.lastPathComponent.hasPrefix("DisplayVendorID-") &&
-               url.lastPathComponent.hasPrefix("DisplayProductID-")
     }
 
     private func isAllowedBackupPath(_ path: String) -> Bool {

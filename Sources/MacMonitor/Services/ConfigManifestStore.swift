@@ -1,4 +1,8 @@
 import Foundation
+import MacMonitorCore
+import os
+
+private let logger = Logger(category: "ConfigManifestStore")
 
 @MainActor
 public final class ConfigManifestStore {
@@ -26,56 +30,36 @@ public final class ConfigManifestStore {
     
     @discardableResult
     public func registerCreatedFile(_ path: String) -> Bool {
-        updateManifest { manifest in
-            if !manifest.createdFiles.contains(path) {
-                manifest.createdFiles.append(path)
-            }
-        }
+        updateManifest { $0.registerCreatedFile(path) }
     }
     
     @discardableResult
     public func unregisterCreatedFile(_ path: String) -> Bool {
-        updateManifest { manifest in
-            manifest.createdFiles.removeAll { $0 == path }
-        }
+        updateManifest { $0.unregisterCreatedFile(path) }
     }
     
     @discardableResult
     public func registerBackup(originalPath: String, backupPath: String) -> Bool {
-        updateManifest { manifest in
-            manifest.backups[originalPath] = backupPath
-        }
+        updateManifest { $0.registerBackup(originalPath: originalPath, backupPath: backupPath) }
     }
     
     @discardableResult
     public func unregisterBackup(originalPath: String) -> Bool {
-        updateManifest { manifest in
-            manifest.backups.removeValue(forKey: originalPath)
-        }
+        updateManifest { $0.unregisterBackup(originalPath: originalPath) }
     }
     
     @discardableResult
     public func setExperimentalFlagsEnabled(_ enabled: Bool) -> Bool {
-        updateManifest { manifest in
-            manifest.experimentalFlagsEnabled = enabled
-        }
+        updateManifest { $0.experimentalFlagsEnabled = enabled }
     }
     
     public func isHiDPIEnabled(displayIdentifier: DisplayIdentifier) -> Bool {
-        manifest.hiDPIEnabledDisplayIDs.contains(displayIdentifier.id)
+        manifest.isHiDPIEnabled(displayIdentifier: displayIdentifier)
     }
     
     @discardableResult
     public func setHiDPIEnabled(_ enabled: Bool, displayIdentifier: DisplayIdentifier) -> Bool {
-        updateManifest { manifest in
-            if enabled {
-                if !manifest.hiDPIEnabledDisplayIDs.contains(displayIdentifier.id) {
-                    manifest.hiDPIEnabledDisplayIDs.append(displayIdentifier.id)
-                }
-            } else {
-                manifest.hiDPIEnabledDisplayIDs.removeAll { $0 == displayIdentifier.id }
-            }
-        }
+        updateManifest { $0.setHiDPIEnabled(enabled, displayIdentifier: displayIdentifier) }
     }
     
     @discardableResult
@@ -94,7 +78,7 @@ public final class ConfigManifestStore {
             let decoder = JSONDecoder()
             self.manifest = try decoder.decode(DisplayConfigManifest.self, from: data)
         } catch {
-            print("[ConfigManifestStore] Failed to load manifest: \(error.localizedDescription)")
+            logger.error("Failed to load manifest: \(error.localizedDescription, privacy: .public)")
         }
     }
     
@@ -109,7 +93,7 @@ public final class ConfigManifestStore {
             manifest = updatedManifest
             return true
         } catch {
-            print("[ConfigManifestStore] Failed to save manifest: \(error.localizedDescription)")
+            logger.error("Failed to save manifest: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
